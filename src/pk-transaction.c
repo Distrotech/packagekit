@@ -2036,8 +2036,8 @@ pk_transaction_strvalidate_char (gchar item)
  *
  * Return value: %TRUE if the string is valid
  **/
-static gboolean
-pk_transaction_strvalidate (const gchar *text)
+gboolean
+pk_transaction_strvalidate (const gchar *text, GError **error)
 {
 	guint i;
 	guint length;
@@ -2045,13 +2045,15 @@ pk_transaction_strvalidate (const gchar *text)
 	/* maximum size is 1024 */
 	length = egg_strlen (text, 1024);
 	if (length > 1024) {
-		egg_warning ("input too long: %u", length);
+		g_set_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
+			     "Invalid input passed to daemon: input too long: %u", length);
 		return FALSE;
 	}
 
 	for (i=0; i<length; i++) {
 		if (pk_transaction_strvalidate_char (text[i]) == FALSE) {
-			egg_warning ("invalid char '%c' in text!", text[i]);
+			g_set_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
+				     "Invalid input passed to daemon: char '%c' in text!", text[i]);
 			return FALSE;
 		}
 	}
@@ -2095,12 +2097,9 @@ pk_transaction_search_check_item (const gchar *values, GError **error)
 				     "The search string length is too large");
 		return FALSE;
 	}
-	ret = pk_transaction_strvalidate (values);
-	if (!ret) {
-		g_set_error_literal (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-				     "Invalid search term");
+	ret = pk_transaction_strvalidate (values, error);
+	if (!ret)
 		return FALSE;
-	}
 	return TRUE;
 }
 
@@ -2126,10 +2125,10 @@ out:
 /**
  * pk_transaction_filter_check:
  **/
-static gboolean
+gboolean
 pk_transaction_filter_check (const gchar *filter, GError **error)
 {
-	gchar **sections;
+	gchar **sections = NULL;
 	guint i;
 	guint length;
 	gboolean ret = FALSE;
@@ -2140,16 +2139,13 @@ pk_transaction_filter_check (const gchar *filter, GError **error)
 	if (egg_strzero (filter)) {
 		g_set_error_literal (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
 				     "filter zero length");
-		return FALSE;
+		goto out;
 	}
 
 	/* check for invalid input */
-	ret = pk_transaction_strvalidate (filter);
-	if (!ret) {
-		g_set_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-			     "Invalid filter term: %s", filter);
-		return FALSE;
-	}
+	ret = pk_transaction_strvalidate (filter, error);
+	if (!ret)
+		goto out;
 
 	/* split by delimeter ';' */
 	sections = g_strsplit (filter, ";", 0);
@@ -2157,17 +2153,18 @@ pk_transaction_filter_check (const gchar *filter, GError **error)
 	for (i=0; i<length; i++) {
 		/* only one wrong part is enough to fail the filter */
 		if (egg_strzero (sections[i])) {
+			ret = FALSE;
 			g_set_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-					     "Single empty section of filter: %s", filter);
+				     "Single empty section of filter: %s", filter);
 			goto out;
 		}
 		if (pk_filter_enum_from_string (sections[i]) == PK_FILTER_ENUM_UNKNOWN) {
+			ret = FALSE;
 			g_set_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-					     "Unknown filter part: %s", sections[i]);
+				     "Unknown filter part: %s", sections[i]);
 			goto out;
 		}
 	}
-	ret = TRUE;
 out:
 	g_strfreev (sections);
 	return ret;
@@ -2509,10 +2506,8 @@ pk_transaction_accept_eula (PkTransaction *transaction, const gchar *eula_id, DB
 	}
 
 	/* check for sanity */
-	ret = pk_transaction_strvalidate (eula_id);
+	ret = pk_transaction_strvalidate (eula_id, &error);
 	if (!ret) {
-		error = g_error_new (PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-				     "Invalid input passed to daemon");
 		pk_transaction_release_tid (transaction);
 		pk_transaction_dbus_return_error (context, error);
 		return;
@@ -3815,10 +3810,8 @@ pk_transaction_install_signature (PkTransaction *transaction, const gchar *sig_t
 	}
 
 	/* check for sanity */
-	ret = pk_transaction_strvalidate (key_id);
+	ret = pk_transaction_strvalidate (key_id, &error);
 	if (!ret) {
-		error = g_error_new (PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-				     "Invalid input passed to daemon");
 		pk_transaction_release_tid (transaction);
 		pk_transaction_dbus_return_error (context, error);
 		return;
@@ -4013,10 +4006,8 @@ pk_transaction_repo_enable (PkTransaction *transaction, const gchar *repo_id, gb
 	}
 
 	/* check for sanity */
-	ret = pk_transaction_strvalidate (repo_id);
+	ret = pk_transaction_strvalidate (repo_id, &error);
 	if (!ret) {
-		error = g_error_new (PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-				     "Invalid input passed to daemon");
 		pk_transaction_release_tid (transaction);
 		pk_transaction_dbus_return_error (context, error);
 		return;
@@ -4073,10 +4064,8 @@ pk_transaction_repo_set_data (PkTransaction *transaction, const gchar *repo_id,
 	}
 
 	/* check for sanity */
-	ret = pk_transaction_strvalidate (repo_id);
+	ret = pk_transaction_strvalidate (repo_id, &error);
 	if (!ret) {
-		error = g_error_new (PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-				     "Invalid input passed to daemon");
 		pk_transaction_release_tid (transaction);
 		pk_transaction_dbus_return_error (context, error);
 		return;
@@ -4159,10 +4148,8 @@ pk_transaction_resolve (PkTransaction *transaction, const gchar *filter,
 
 	/* check each package for sanity */
 	for (i=0; i<length; i++) {
-		ret = pk_transaction_strvalidate (packages[i]);
+		ret = pk_transaction_strvalidate (packages[i], &error);
 		if (!ret) {
-			error = g_error_new (PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-					     "Invalid input passed to daemon");
 			pk_transaction_release_tid (transaction);
 			pk_transaction_dbus_return_error (context, error);
 			return;
@@ -4221,10 +4208,8 @@ pk_transaction_rollback (PkTransaction *transaction, const gchar *transaction_id
 	}
 
 	/* check for sanity */
-	ret = pk_transaction_strvalidate (transaction_id);
+	ret = pk_transaction_strvalidate (transaction_id, &error);
 	if (!ret) {
-		error = g_error_new (PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID,
-				     "Invalid input passed to daemon");
 		pk_transaction_release_tid (transaction);
 		pk_transaction_dbus_return_error (context, error);
 		return;

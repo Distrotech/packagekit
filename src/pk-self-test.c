@@ -946,7 +946,7 @@ pk_test_spawn_func (void)
 	argv = g_strsplit ("pk-spawn-test-xxx.sh", " ", 0);
 	ret = pk_spawn_argv (spawn, argv, NULL);
 	g_strfreev (argv);
-	if (!ret);
+	g_assert (!ret);
 
 	/* make sure finished wasn't called */
 	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_UNKNOWN);
@@ -956,9 +956,9 @@ pk_test_spawn_func (void)
 	path = egg_test_get_data_file ("pk-spawn-test.sh");
 	argv = g_strsplit (path, " ", 0);
 	ret = pk_spawn_argv (spawn, argv, NULL);
+	g_assert (ret);
 	g_free (path);
 	g_strfreev (argv);
-	g_assert (ret);
 
 	/* wait for finished */
 	egg_test_loop_wait (test, 10000);
@@ -1268,116 +1268,92 @@ pk_test_time_func (void)
 	g_object_unref (pktime);
 }
 
-#if 0
 static void
 pk_test_transaction_func (void)
 {
 	PkTransaction *transaction = NULL;
 	gboolean ret;
-	const gchar *temp;
 	GError *error = NULL;
-#ifdef USE_SECURITY_POLKIT
-	const gchar *action;
-#endif
 
 	/* get PkTransaction object */
 	transaction = pk_transaction_new ();
 	g_assert (transaction != NULL);
 
-#ifdef USE_SECURITY_POLKIT
-	/* map valid role to action */
-	action = pk_transaction_role_to_action_only_trusted (PK_ROLE_ENUM_UPDATE_PACKAGES);
-	g_assert_cmpstr (action, ==, "org.freedesktop.packagekit.system-update");
-
-	/* map invalid role to action */
-	action = pk_transaction_role_to_action_only_trusted (PK_ROLE_ENUM_SEARCH_NAME);
-	if (action, ==, NULL);
-#endif
-
-	temp = NULL;
 	/* test a fail filter (null) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check (NULL, &error);
+	g_assert_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID);
 	g_assert (!ret);
 	g_clear_error (&error);
 
-	temp = "";
 	/* test a fail filter () */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("", &error);
+	g_assert_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID);
 	g_assert (!ret);
 	g_clear_error (&error);
 
-	temp = ";";
 	/* test a fail filter (;) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check (";", &error);
+	g_assert_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID);
 	g_assert (!ret);
 	g_clear_error (&error);
 
-	temp = "moo";
 	/* test a fail filter (invalid) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("moo", &error);
+	g_assert_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID);
 	g_assert (!ret);
 
 	g_clear_error (&error);
 
-	temp = "moo;foo";
 	/* test a fail filter (invalid, multiple) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("moo;foo", &error);
+	g_assert_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID);
 	g_assert (!ret);
 	g_clear_error (&error);
 
-	temp = "gui;;";
 	/* test a fail filter (valid then zero length) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("gui;;", &error);
+	g_assert_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID);
 	g_assert (!ret);
 	g_clear_error (&error);
 
-	temp = "none";
 	/* test a pass filter (none) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("none", &error);
+	g_assert_no_error (error);
 	g_assert (ret);
 	g_clear_error (&error);
 
-	temp = "gui";
 	/* test a pass filter (single) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("gui", &error);
+	g_assert_no_error (error);
 	g_assert (ret);
 	g_clear_error (&error);
 
-	temp = "devel;~gui";
 	/* test a pass filter (multiple) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("devel;~gui", &error);
+	g_assert_no_error (error);
 	g_assert (ret);
 	g_clear_error (&error);
 
-	temp = "~gui;~installed";
 	/* test a pass filter (multiple2) */
-	ret = pk_transaction_filter_check (temp, &error);
+	ret = pk_transaction_filter_check ("~gui;~installed", &error);
+	g_assert_no_error (error);
 	g_assert (ret);
 	g_clear_error (&error);
-
-	/* validate correct char 1 */
-	ret = pk_transaction_strvalidate_char ('a');
-	g_assert (ret);
-
-	/* validate correct char 2 */
-	ret = pk_transaction_strvalidate_char ('~');
-	g_assert (ret);
-
-	/* validate incorrect char */
-	ret = pk_transaction_strvalidate_char ('$');
-	g_assert (!ret);
 
 	/* validate incorrect text */
-	ret = pk_transaction_strvalidate ("richard$hughes");
+	ret = pk_transaction_strvalidate ("richard$hughes", &error);
+	g_assert_error (error, PK_TRANSACTION_ERROR, PK_TRANSACTION_ERROR_INPUT_INVALID);
 	g_assert (!ret);
+	g_clear_error (&error);
 
 	/* validate correct text */
-	ret = pk_transaction_strvalidate ("richardhughes");
+	ret = pk_transaction_strvalidate ("richardhughes", &error);
+	g_assert_no_error (error);
 	g_assert (ret);
+	g_clear_error (&error);
 
 	g_object_unref (transaction);
 }
-#endif
 
 static void
 pk_test_transaction_db_func (void)
@@ -1909,6 +1885,7 @@ main (int argc, char **argv)
 	g_test_add_func ("/packagekit/store", pk_test_store_func);
 	g_test_add_func ("/packagekit/inhibit", pk_test_inhibit_func);
 //	g_test_add_func ("/packagekit/spawn", pk_test_spawn_func);
+	g_test_add_func ("/packagekit/transaction", pk_test_transaction_func);
 //	g_test_add_func ("/packagekit/transaction-list", pk_test_transaction_list_func);
 	g_test_add_func ("/packagekit/transaction-db", pk_test_transaction_db_func);
 	g_test_add_func ("/packagekit/transaction-extra", pk_test_transaction_extra_func);
