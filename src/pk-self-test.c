@@ -135,7 +135,7 @@ pk_test_backend_func (void)
 
 	/* get an backend */
 	backend = pk_backend_new ();
-	if (backend != NULL);
+	g_assert (backend != NULL);
 
 	/* connect */
 	g_signal_connect (backend, "package",
