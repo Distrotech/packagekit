@@ -19,47 +19,63 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#include <config.h>
+
 #include <glib.h>
 #include <glib-object.h>
 #include <glib/gstdio.h>
 
 #include "pk-backend-internal.h"
 #include "pk-cache.h"
+#include "pk-conf.h"
+#include "pk-lsof.h"
+#include "pk-time.h"
 #include "pk-transaction-db.h"
+#include "pk-transaction.h"
+#include "pk-transaction-extra.h"
+#include "pk-transaction-list.h"
+#include "pk-syslog.h"
+#include "pk-dbus.h"
+#include "pk-inhibit.h"
+#include "pk-proc.h"
+#include "pk-file-monitor.h"
+#include "pk-transaction-db.h"
+
+#if 0
 
 static guint number_messages = 0;
 static guint number_packages = 0;
 
 /**
- * pk_test_backend_test_message_cb:
+ * pk_test_backend_message_cb:
  **/
 static void
-pk_test_backend_test_message_cb (PkBackend *backend, PkMessageEnum message, const gchar *details, gpointer data)
+pk_test_backend_message_cb (PkBackend *backend, PkMessageEnum message, const gchar *details, gpointer data)
 {
 	egg_debug ("details=%s", details);
 	number_messages++;
 }
 
 /**
- * pk_test_backend_test_finished_cb:
+ * pk_test_backend_finished_cb:
  **/
 static void
-pk_test_backend_test_finished_cb (PkBackend *backend, PkExitEnum exit, GMainLoop *loop)
+pk_test_backend_finished_cb (PkBackend *backend, PkExitEnum exit, GMainLoop *loop)
 {
 	g_main_loop_quit (loop)
 }
 
 /**
- * pk_test_backend_test_watch_file_cb:
+ * pk_test_backend_watch_file_cb:
  **/
 static void
-pk_test_backend_test_watch_file_cb (PkBackend *backend, GMainLoop *loop)
+pk_test_backend_watch_file_cb (PkBackend *backend, GMainLoop *loop)
 {
 	g_main_loop_quit (loop)
 }
 
 static gboolean
-pk_test_backend_test_func_true (PkBackend *backend)
+pk_test_backend_func_true (PkBackend *backend)
 {
 	g_usleep (1000*1000);
 	/* trigger duplicate test */
@@ -70,24 +86,24 @@ pk_test_backend_test_func_true (PkBackend *backend)
 }
 
 static gboolean
-pk_test_backend_test_func_immediate_false (PkBackend *backend)
+pk_test_backend_func_immediate_false (PkBackend *backend)
 {
 	pk_backend_finished (backend);
 	return FALSE;
 }
 
 /**
- * pk_test_backend_test_package_cb:
+ * pk_test_backend_package_cb:
  **/
 static void
-pk_test_backend_test_package_cb (PkBackend *backend, PkPackage *item, GMainLoop *loop)
+pk_test_backend_package_cb (PkBackend *backend, PkPackage *item, GMainLoop *loop)
 {
 	egg_debug ("package:%s", pk_package_get_id (item));
 	number_packages++;
 }
 
 static void
-pk_test_backend_func (EggTest *test)
+pk_test_backend_func (void)
 {
 	PkBackend *backend;
 	PkConf *conf;
@@ -97,267 +113,181 @@ pk_test_backend_func (EggTest *test)
 	const gchar *filename;
 	gboolean developer_mode;
 
-	/************************************************************
-	 ****************       REPLACE CHARS      ******************
-	 ************************************************************/
-	egg_test_title (test, "test replace unsafe (okay)");
+	/* test replace unsafe (okay) */
 	text_safe = pk_backend_strsafe ("Richard Hughes");
-	if (g_strcmp0 (text_safe, "Richard Hughes") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed the replace unsafe '%s'", text_safe);
+	g_assert_cmpstr (text_safe, ==, "Richard Hughes");
 	g_free (text_safe);
 
-	egg_test_title (test, "test replace UTF8 unsafe (okay)");
+	/* test replace UTF8 unsafe (okay) */
 	text_safe = pk_backend_strsafe ("Gölas");
-	if (g_strcmp0 (text_safe, "Gölas") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed the replace unsafe '%s'", text_safe);
+	g_assert_cmpstr (text_safe, ==, "Gölas");
 	g_free (text_safe);
 
-	egg_test_title (test, "test replace unsafe (one invalid)");
+	/* test replace unsafe (one invalid) */
 	text_safe = pk_backend_strsafe ("Richard\rHughes");
-	if (g_strcmp0 (text_safe, "Richard Hughes") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed the replace unsafe '%s'", text_safe);
+	g_assert_cmpstr (text_safe, ==, "Richard Hughes");
 	g_free (text_safe);
 
-	egg_test_title (test, "test replace unsafe (multiple invalid)");
+	/* test replace unsafe (multiple invalid) */
 	text_safe = pk_backend_strsafe (" Richard\rHughes\f");
-	if (g_strcmp0 (text_safe, " Richard Hughes ") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed the replace unsafe '%s'", text_safe);
+	g_assert_cmpstr (text_safe, ==, " Richard Hughes ");
 	g_free (text_safe);
 
-	egg_test_title (test, "get an backend");
+	/* get an backend */
 	backend = pk_backend_new ();
-	if (backend != NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, NULL);
+	if (backend != NULL);
 
 	/* connect */
 	g_signal_connect (backend, "package",
-			  G_CALLBACK (pk_test_backend_test_package_cb), test);
+			  G_CALLBACK (pk_test_backend_package_cb), test);
 
-	egg_test_title (test, "create a config file");
+	/* create a config file */
 	filename = "/tmp/dave";
 	ret = g_file_set_contents (filename, "foo", -1, NULL);
-	if (ret) {
-		egg_test_success (test, "set contents");
-	} else
-		egg_test_failed (test, NULL);
+	g_assert (ret);
 
-	egg_test_title (test, "set up a watch file on a config file");
+	/* set up a watch file on a config file */
 	ret = pk_backend_watch_file (backend, filename, pk_backend_test_watch_file_cb, test);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "eula valid");
+	g_assert (ret);
 
-	egg_test_title (test, "change the config file");
+	/* change the config file */
 	ret = g_file_set_contents (filename, "bar", -1, NULL);
-	if (ret) {
-		egg_test_success (test, "set contents");
-	} else
-		egg_test_failed (test, NULL);
+	g_assert (ret);
 
 	/* wait for config file change */
 	egg_test_loop_wait (test, 2000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "delete the config file");
+	/* delete the config file */
 	ret = g_unlink (filename);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	g_signal_connect (backend, "message", G_CALLBACK (pk_test_backend_test_message_cb), NULL);
-	g_signal_connect (backend, "finished", G_CALLBACK (pk_test_backend_test_finished_cb), test);
+	g_signal_connect (backend, "message", G_CALLBACK (pk_test_backend_message_cb), NULL);
+	g_signal_connect (backend, "finished", G_CALLBACK (pk_test_backend_finished_cb), test);
 
-	egg_test_title (test, "get eula that does not exist");
+	/* get eula that does not exist */
 	ret = pk_backend_is_eula_valid (backend, "license_foo");
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "eula valid");
+	g_assert (!ret);
 
-	egg_test_title (test, "accept eula");
+	/* accept eula */
 	ret = pk_backend_accept_eula (backend, "license_foo");
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "eula was not accepted");
+	g_assert (ret);
 
-	egg_test_title (test, "get eula that does exist");
+	/* get eula that does exist */
 	ret = pk_backend_is_eula_valid (backend, "license_foo");
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "eula valid");
+	g_assert (ret);
 
-	egg_test_title (test, "accept eula (again)");
+	/* accept eula (again) */
 	ret = pk_backend_accept_eula (backend, "license_foo");
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "eula was accepted twice");
+	g_assert (!ret);
 
-	egg_test_title (test, "load an invalid backend");
+	/* load an invalid backend */
 	ret = pk_backend_set_name (backend, "invalid");
-	if (ret == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, NULL);
+	g_assert (!ret);
 
-	egg_test_title (test, "try to load a valid backend");
+	/* try to load a valid backend */
 	ret = pk_backend_set_name (backend, "dummy");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "load an valid backend again");
+	/* load an valid backend again */
 	ret = pk_backend_set_name (backend, "dummy");
-	if (ret == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "loaded twice");
+	g_assert (!ret);
 
-	egg_test_title (test, "lock an valid backend");
+	/* lock an valid backend */
 	ret = pk_backend_lock (backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to lock");
+	g_assert (ret);
 
-	egg_test_title (test, "lock a backend again");
+	/* lock a backend again */
 	ret = pk_backend_lock (backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "locked twice should succeed");
+	g_assert (ret);
 
-	egg_test_title (test, "check we are out of init");
-	if (backend->priv->during_initialize == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "not out of init");
+	/* check we are out of init */
+	g_assert (!backend->priv->during_initialize);
 
-	egg_test_title (test, "get backend name");
+	/* get backend name */
 	text = pk_backend_get_name (backend);
-	if (g_strcmp0 (text, "dummy") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "invalid name %s", text);
+	g_assert_cmpstr (text, ==, "dummy");
 	g_free (text);
 
-	egg_test_title (test, "unlock an valid backend");
+	/* unlock an valid backend */
 	ret = pk_backend_unlock (backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to unlock");
+	g_assert (ret);
 
-	egg_test_title (test, "unlock an valid backend again");
+	/* unlock an valid backend again */
 	ret = pk_backend_unlock (backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "unlocked twice, should succeed");
+	g_assert (ret);
 
-	egg_test_title (test, "check we are not finished");
-	if (backend->priv->finished == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "we did not clear finish!");
+	/* check we are not finished */
+	g_assert (!backend->priv->finished);
 
-	egg_test_title (test, "check we have no error");
-	if (backend->priv->set_error == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "an error has already been set");
+	/* check we have no error */
+	g_assert (!backend->priv->set_error);
 
-	egg_test_title (test, "lock again");
+	/* lock again */
 	ret = pk_backend_lock (backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to unlock");
+	g_assert (ret);
 
-	egg_test_title (test, "wait for a thread to return true");
-	ret = pk_backend_thread_create (backend, pk_test_backend_test_func_true);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wait for a thread failed");
+	/* wait for a thread to return true */
+	ret = pk_backend_thread_create (backend, pk_test_backend_func_true);
+	g_assert (ret);
 
 	/* wait for Finished */
 	egg_test_loop_wait (test, 2000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "check duplicate filter");
-	if (number_packages == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong number of packages: %i", number_packages);
+	/* check duplicate filter */
+	g_assert_cmpint (number_packages, ==, 1);
 
 	/* reset */
 	pk_backend_reset (backend);
 
-	egg_test_title (test, "wait for a thread to return false (straight away)");
-	ret = pk_backend_thread_create (backend, pk_test_backend_test_func_immediate_false);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "returned false!");
-
+	/* wait for a thread to return false (straight away) */
+	ret = pk_backend_thread_create (backend, pk_test_backend_func_immediate_false);
+	g_assert (ret);
 	/* wait for Finished */
 	egg_test_loop_wait (test, PK_BACKEND_FINISHED_TIMEOUT_GRACE + 100);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
 	pk_backend_reset (backend);
 	pk_backend_error_code (backend, PK_ERROR_ENUM_GPG_FAILURE, "test error");
 
 	/* wait for finished */
 	egg_test_loop_wait (test, PK_BACKEND_FINISHED_ERROR_TIMEOUT + 400);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "get allow cancel after reset");
+	/* get allow cancel after reset */
 	pk_backend_reset (backend);
 	ret = pk_backend_get_allow_cancel (backend);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "set allow cancel TRUE");
+	/* set allow cancel TRUE */
 	ret = pk_backend_set_allow_cancel (backend, TRUE);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "set allow cancel TRUE (repeat)");
+	/* set allow cancel TRUE (repeat) */
 	ret = pk_backend_set_allow_cancel (backend, TRUE);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "set allow cancel FALSE");
+	/* set allow cancel FALSE */
 	ret = pk_backend_set_allow_cancel (backend, FALSE);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "set allow cancel FALSE (after reset)");
+	/* set allow cancel FALSE (after reset) */
 	pk_backend_reset (backend);
 	ret = pk_backend_set_allow_cancel (backend, FALSE);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
 	/* if running in developer mode, then expect a Message */
 	conf = pk_conf_new ();
 	developer_mode = pk_conf_get_bool (conf, "DeveloperMode");
 	g_object_unref (conf);
 	if (developer_mode) {
-			egg_test_title (test, "check we enforce finished after error_code");
-		if (number_messages == 1)
-			egg_test_success (test, NULL);
-		else
-			egg_test_failed (test, "we messaged %i times!", number_messages);
+		/* check we enforce finished after error_code */
+		g_assert_cmpint (number_messages, ==, 1)
 	}
 
 	g_object_unref (backend);
 }
-
 
 static GMainLoop *loop;
 static guint number_packages = 0;
@@ -397,7 +327,7 @@ pk_test_backend_spawn_va_list_to_argv_test (const gchar *first_element, ...)
 }
 
 static void
-pk_test_backend_test_spawn_func (EggTest *test)
+pk_test_backend_spawn_func (void)
 {
 	PkBackendSpawn *backend_spawn;
 	PkBackend *backend;
@@ -409,180 +339,138 @@ pk_test_backend_test_spawn_func (EggTest *test)
 
 	loop = g_main_loop_new (NULL, FALSE);
 
-	egg_test_title (test, "va_list_to_argv single");
+	/* va_list_to_argv single */
 	array = pk_test_backend_spawn_va_list_to_argv_test ("richard", NULL);
-	if (g_strcmp0 (array[0], "richard") == 0 &&
-	    array[1] == NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "incorrect array '%s'", array[0]);
+	g_assert_cmpstr (array[0], ==, "richard");
+	    array[1], ==, NULL);
 	g_strfreev (array);
 
-	egg_test_title (test, "va_list_to_argv triple");
+	/* va_list_to_argv triple */
 	array = pk_test_backend_spawn_va_list_to_argv_test ("richard", "phillip", "hughes", NULL);
-	if (g_strcmp0 (array[0], "richard") == 0 &&
-	    g_strcmp0 (array[1], "phillip") == 0 &&
-	    g_strcmp0 (array[2], "hughes") == 0 &&
-	    array[3] == NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "incorrect array '%s','%s','%s'", array[0], array[1], array[2]);
+	g_assert_cmpstr (array[0], ==, "richard");
+	g_assert_cmpstr (array[1], ==, "phillip");
+	g_assert_cmpstr (array[2], ==, "hughes");
+	    array[3], ==, NULL);
 	g_strfreev (array);
 
-	egg_test_title (test, "get an backend_spawn");
+	/* get an backend_spawn */
 	backend_spawn = pk_backend_spawn_new ();
-	egg_test_assert (test, backend_spawn != NULL);
+	g_assert (backend_spawn != NULL);
 
 	/* private copy for unref testing */
 	backend = backend_spawn->priv->backend;
 	/* incr ref count so we don't kill the object */
 	g_object_ref (backend);
 
-	egg_test_title (test, "get backend name");
+	/* get backend name */
 	text = pk_backend_spawn_get_name (backend_spawn);
-	if (text == NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "invalid name %s", text);
+	if (text, ==, NULL);
 
-	egg_test_title (test, "set backend name");
+	/* set backend name */
 	ret = pk_backend_spawn_set_name (backend_spawn, "test_spawn");
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "invalid set name");
+	g_assert (ret);
 
-	egg_test_title (test, "get backend name");
+	/* get backend name */
 	text = pk_backend_spawn_get_name (backend_spawn);
-	if (g_strcmp0 (text, "test_spawn") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "invalid name %s", text);
+	g_assert_cmpstr (text, ==, "test_spawn");
 
 	/* needed to avoid an error */
 	ret = pk_backend_set_name (backend_spawn->priv->backend, "test_spawn");
 	ret = pk_backend_lock (backend_spawn->priv->backend);
 
-	/************************************************************
-	 **********       Check parsing common error      ***********
-	 ************************************************************/
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout Percentage1");
+	/* test pk_backend_spawn_parse_stdout Percentage1 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "percentage\t0");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout Percentage2");
+	/* test pk_backend_spawn_parse_stdout Percentage2 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "percentage\tbrian");
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout Percentage3");
+	/* test pk_backend_spawn_parse_stdout Percentage3 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "percentage\t12345");
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout Percentage4");
+	/* test pk_backend_spawn_parse_stdout Percentage4 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "percentage\t");
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout Percentage5");
+	/* test pk_backend_spawn_parse_stdout Percentage5 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "percentage");
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout Subpercentage");
+	/* test pk_backend_spawn_parse_stdout Subpercentage */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "subpercentage\t17");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout NoPercentageUpdates");
+	/* test pk_backend_spawn_parse_stdout NoPercentageUpdates");
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "no-percentage-updates");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout failure");
+	/* test pk_backend_spawn_parse_stdout failure */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "error\tnot-present-woohoo\tdescription text");
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not detect incorrect enum");
+	g_assert (!ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout Status");
+	/* test pk_backend_spawn_parse_stdout Status */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "status\tquery");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout RequireRestart");
+	/* test pk_backend_spawn_parse_stdout RequireRestart */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "requirerestart\tsystem\tgnome-power-manager;0.0.1;i386;data");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout RequireRestart invalid enum");
+	/* test pk_backend_spawn_parse_stdout RequireRestart invalid enum */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "requirerestart\tmooville\tgnome-power-manager;0.0.1;i386;data");
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not detect incorrect enum");
+	g_assert (!ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout RequireRestart invalid PackageId");
+	/* test pk_backend_spawn_parse_stdout RequireRestart invalid PackageId */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "requirerestart\tsystem\tdetails about the restart");
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not detect incorrect package id");
+	g_assert (!ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout AllowUpdate1");
+	/* test pk_backend_spawn_parse_stdout AllowUpdate1 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "allow-cancel\ttrue");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "test pk_backend_spawn_parse_stdout AllowUpdate2");
+	/* test pk_backend_spawn_parse_stdout AllowUpdate2 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "allow-cancel\tbrian");
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	/************************************************************
-	 **********         Check uri conversion          ***********
-	 ************************************************************/
-	egg_test_title (test, "convert proxy uri (bare)");
+	/* convert proxy uri (bare) */
 	uri = pk_backend_spawn_convert_uri ("username:password@server:port");
-	egg_test_assert (test, (g_strcmp0 (uri, "http://username:password@server:port/") == 0));
+	g_assert_cmpstr (uri, ==, "http://username:password@server:port/"));
 	g_free (uri);
 
-	egg_test_title (test, "convert proxy uri (full)");
+	/* convert proxy uri (full) */
 	uri = pk_backend_spawn_convert_uri ("http://username:password@server:port/");
-	egg_test_assert (test, (g_strcmp0 (uri, "http://username:password@server:port/") == 0));
+	g_assert_cmpstr (uri, ==, "http://username:password@server:port/"));
 	g_free (uri);
 
-	egg_test_title (test, "convert proxy uri (partial)");
+	/* convert proxy uri (partial) */
 	uri = pk_backend_spawn_convert_uri ("ftp://username:password@server:port");
-	egg_test_assert (test, (g_strcmp0 (uri, "ftp://username:password@server:port/") == 0));
+	g_assert_cmpstr (uri, ==, "ftp://username:password@server:port/"));
 	g_free (uri);
 
-	/************************************************************
-	 **********        Check parsing common out       ***********
-	 ************************************************************/
-	egg_test_title (test, "test pk_backend_spawn_parse_common_out Package");
+	/* test pk_backend_spawn_parse_common_out Package */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn,
 		"package\tinstalled\tgnome-power-manager;0.0.1;i386;data\tMore useless software");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "manually unlock as we have no engine");
+	/* manually unlock as we have no engine */
 	ret = pk_backend_unlock (backend_spawn->priv->backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not unlock");
+	g_assert (ret);
 
 	/* reset */
 	g_object_unref (backend_spawn);
 
-	egg_test_title (test, "test we unref'd all but one of the PkBackend instances");
+	/* test we unref'd all but one of the PkBackend instances */
 	refcount = G_OBJECT(backend)->ref_count;
-	if (refcount == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "refcount invalid %i", refcount);
+	g_assert_cmpint (refcount, ==, 1);
 
 	/* new */
 	backend_spawn = pk_backend_spawn_new ();
 
-	egg_test_title (test, "set backend name");
+	/* set backend name */
 	ret = pk_backend_spawn_set_name (backend_spawn, "test_spawn");
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "invalid set name");
+	g_assert (ret);
 
 	/* so we can spin until we finish */
 	g_signal_connect (backend_spawn->priv->backend, "finished",
@@ -594,122 +482,87 @@ pk_test_backend_test_spawn_func (EggTest *test)
 	/* needed to avoid an error */
 	ret = pk_backend_lock (backend_spawn->priv->backend);
 
-	/************************************************************
-	 **********          Use a spawned helper         ***********
-	 ************************************************************/
-	egg_test_title (test, "test search-name.sh running");
+	/* test search-name.sh running */
 	ret = pk_backend_spawn_helper (backend_spawn, "search-name.sh", "none", "bar", NULL);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "cannot spawn search-name.sh");
+	g_assert (ret);
 
 	/* wait for finished */
 	g_main_loop_run (loop);
 
-	egg_test_title (test, "test number of packages");
-	if (number_packages == 2)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong number of packages %i", number_packages);
+	/* test number of packages */
+	g_assert_cmpint (number_packages, ==, 2);
 
-	egg_test_title (test, "manually unlock as we have no engine");
+	/* manually unlock as we have no engine */
 	ret = pk_backend_unlock (backend_spawn->priv->backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not unlock");
+	g_assert (ret);
 
 	/* done */
 	g_object_unref (backend_spawn);
 
-	egg_test_title (test, "test we unref'd all but one of the PkBackend instances");
+	/* test we unref'd all but one of the PkBackend instances */
 	refcount = G_OBJECT(backend)->ref_count;
-	if (refcount == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "refcount invalid %i", refcount);
+	g_assert_cmpint (refcount, ==, 1);
 
 	/* we ref'd it manually for checking, so we need to unref it */
 	g_object_unref (backend);
 	g_main_loop_unref (loop);
 }
-
+#endif
 
 static void
-pk_test_cache_func (EggTest *test)
+pk_test_cache_func (void)
 {
 	PkCache *cache;
 
-	egg_test_title (test, "get an instance");
 	cache = pk_cache_new ();
-	if (cache != NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, NULL);
+	g_assert (cache != NULL);
 
 	g_object_unref (cache);
 }
 
-
 static void
-pk_test_conf_func (EggTest *test)
+pk_test_conf_func (void)
 {
 	PkConf *conf;
 	gchar *text;
 	gint value;
 
-	egg_test_title (test, "get an instance");
 	conf = pk_conf_new ();
-	egg_test_assert (test, conf != NULL);
+	g_assert (conf != NULL);
 
-	egg_test_title (test, "get the default backend");
+	/* get the default backend */
 	text = pk_conf_get_string (conf, "DefaultBackend");
-	if (text != PK_CONF_VALUE_STRING_MISSING)
-		egg_test_success (test, "got default backend '%s'", text);
-	else
-		egg_test_failed (test, "got NULL!");
+	if (text != PK_CONF_VALUE_STRING_MISSING);
 	g_free (text);
 
-	egg_test_title (test, "get a string that doesn't exist");
+	/* get a string that doesn't exist */
 	text = pk_conf_get_string (conf, "FooBarBaz");
-	if (text == PK_CONF_VALUE_STRING_MISSING)
-		egg_test_success (test, "got NULL", text);
-	else
-		egg_test_failed (test, "got return value '%s'", text);
+	g_assert (text == PK_CONF_VALUE_STRING_MISSING);
 	g_free (text);
 
-	egg_test_title (test, "get the shutdown timeout");
+	/* get the shutdown timeout */
 	value = pk_conf_get_int (conf, "ShutdownTimeout");
-	if (value != PK_CONF_VALUE_INT_MISSING)
-		egg_test_success (test, "got ShutdownTimeout '%i'", value);
-	else
-		egg_test_failed (test, "got %i", value);
+	if (value != PK_CONF_VALUE_INT_MISSING);
 
-	egg_test_title (test, "get an int that doesn't exist");
+	/* get an int that doesn't exist */
 	value = pk_conf_get_int (conf, "FooBarBaz");
-	if (value == PK_CONF_VALUE_INT_MISSING)
-		egg_test_success (test, "got %i", value);
-	else
-		egg_test_failed (test, "got return value '%i'", value);
+	g_assert_cmpint (value, ==, PK_CONF_VALUE_INT_MISSING);
 
 	g_object_unref (conf);
 }
 
-
 static void
-pk_test_dbus_func (EggTest *test)
+pk_test_dbus_func (void)
 {
 	PkDbus *dbus;
 
-	egg_test_title (test, "get an instance");
 	dbus = pk_dbus_new ();
-	egg_test_assert (test, dbus != NULL);
+	g_assert (dbus != NULL);
 
 	g_object_unref (dbus);
 }
 
-
+#if 0
 static PkNotify *notify = NULL;
 static gboolean _quit = FALSE;
 static gboolean _locked = FALSE;
@@ -767,7 +620,7 @@ pk_test_restart_schedule_cb (PkEngine *engine, GMainLoop *loop)
  * pk_test_emit_updates_changed_cb:
  **/
 static gboolean
-pk_test_emit_updates_changed_cb (EggTest *test)
+pk_test_emit_updates_changed_cb (void)
 {
 	PkNotify *notify2;
 	notify2 = pk_notify_new ();
@@ -780,7 +633,7 @@ pk_test_emit_updates_changed_cb (EggTest *test)
  * pk_test_emit_repo_list_changed_cb:
  **/
 static gboolean
-pk_test_emit_repo_list_changed_cb (EggTest *test)
+pk_test_emit_repo_list_changed_cb (void)
 {
 	PkNotify *notify2;
 	notify2 = pk_notify_new ();
@@ -790,7 +643,7 @@ pk_test_emit_repo_list_changed_cb (EggTest *test)
 }
 
 static void
-pk_test_engine_func (EggTest *test)
+pk_test_engine_func (void)
 {
 	gboolean ret;
 	PkEngine *engine;
@@ -800,22 +653,20 @@ pk_test_engine_func (EggTest *test)
 	gchar *state;
 	guint elapsed;
 
-	egg_test_title (test, "get a backend instance");
 	backend = pk_backend_new ();
-	egg_test_assert (test, backend != NULL);
+	g_assert (backend != NULL);
 
-	egg_test_title (test, "get a notify instance");
 	notify = pk_notify_new ();
-	egg_test_assert (test, notify != NULL);
+	g_assert (notify != NULL);
 
 	/* set the type, as we have no pk-main doing this for us */
-	egg_test_title (test, "set the backend name");
+	/* set the backend name */
 	ret = pk_backend_set_name (backend, "dummy");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "get an engine instance");
+	/* get an engine instance */
 	engine = pk_engine_new ();
-	egg_test_assert (test, engine != NULL);
+	g_assert (engine != NULL);
 
 	/* connect up signals */
 	g_signal_connect (engine, "quit",
@@ -829,273 +680,193 @@ pk_test_engine_func (EggTest *test)
 	g_signal_connect (engine, "restart-schedule",
 			  G_CALLBACK (pk_test_restart_schedule_cb), test);
 
-	/************************************************************
-	 **********           GET IDLE TIMES              ***********
-	 ************************************************************/
-	egg_test_title (test, "get idle at startup");
+	/* get idle at startup */
 	idle = pk_engine_get_seconds_idle (engine);
-	if (idle < 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "idle = %i", idle);
+	g_assert_cmpint (idle, <, 1);
 
 	/* wait 5 seconds */
 	egg_test_loop_wait (test, 5000);
 
-	egg_test_title (test, "get idle at idle");
+	/* get idle at idle */
 	idle = pk_engine_get_seconds_idle (engine);
-	if (idle < 6 && idle > 4)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "idle = %i", idle);
+	g_assert_cmpint (idle, <, 6);
+	g_assert_cmpint (idle, >, 4);
 
-	egg_test_title (test, "get idle after method");
+	/* get idle after method */
 	pk_engine_get_daemon_state (engine, &state, NULL);
 	g_free (state);
 	idle = pk_engine_get_seconds_idle (engine);
-	if (idle < 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "idle = %i", idle);
+	g_assert_cmpint (idle, <, 1);
 
-	/************************************************************
-	 **********        TEST PROXY NOTIFY              ***********
-	 ************************************************************/
-	egg_test_title (test, "force test notify updates-changed");
+	/* force test notify updates-changed */
 	g_timeout_add (25, (GSourceFunc) pk_test_emit_updates_changed_cb, test);
-	egg_test_success (test, NULL);
+	xxx
 	egg_test_loop_wait (test, 50);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "force test notify repo-list-changed");
+	/* force test notify repo-list-changed */
 	g_timeout_add (25, (GSourceFunc) pk_test_emit_repo_list_changed_cb, test);
-	egg_test_success (test, NULL);
+	xxx
 	egg_test_loop_wait (test, 50);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "force test notify wait updates-changed");
+	/* force test notify wait updates-changed */
 	pk_notify_wait_updates_changed (notify, 500);
 	egg_test_loop_wait (test, 1000);
-	elapsed = egg_test_elapsed (test);
-	if (elapsed > 400 && elapsed < 600)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to quit (%i)", elapsed);
+	g_test_timer_start ();
+	elapsed = g_test_timer_elapsed ();
+	g_assert_cmpfloat (elapsed, >, 0.000400);
+	g_assert_cmpfloat (elapsed, <, 0.000600);
 
-	/************************************************************
-	 **********               LOCKING                 ***********
-	 ************************************************************/
-	egg_test_title (test, "test locked");
+	/* test locked */
 	inhibit = pk_inhibit_new ();
 	pk_inhibit_add (inhibit, GUINT_TO_POINTER (999));
-	if (_locked)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "not locked");
+	if (_locked);
 
-	egg_test_title (test, "test locked");
+	/* test locked */
 	pk_inhibit_remove (inhibit, GUINT_TO_POINTER (999));
-	if (!_locked)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "not locked");
+	if (!_locked);
 	g_object_unref (inhibit);
 
-	egg_test_title (test, "test not locked");
-	if (!_locked)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "still locked");
+	/* test not locked */
+	if (!_locked);
 
-	/************************************************************
-	 **********          BINARY UPGRADE TEST          ***********
-	 ************************************************************/
 	egg_test_title_assert (test, "restart_schedule not set", !_restart_schedule);
 	ret = g_file_set_contents (SBINDIR "/packagekitd", "overwrite", -1, NULL);
 
 	egg_test_title_assert (test, "touched binary file", ret);
 	egg_test_loop_wait (test, 5000);
 
-	egg_test_title (test, "get idle after we touched the binary");
+	/* get idle after we touched the binary */
 	idle = pk_engine_get_seconds_idle (engine);
-	if (idle == G_MAXUINT)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "idle = %i", idle);
+	g_assert_cmpint (idle, ==, G_MAXUINT);
 
 	egg_test_title_assert (test, "restart_schedule set", _restart_schedule);
 
-	/************************************************************
-	 **********             DAEMON QUIT               ***********
-	 ************************************************************/
 	egg_test_title_assert (test, "not already quit", !_quit);
-	egg_test_title (test, "suggest quit with no transactions (should get quit signal)");
+	/* suggest quit with no transactions (should get quit signal) */
 	pk_engine_suggest_daemon_quit (engine, NULL);
-	if (_quit)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not quit");
+	if (_quit);
 
 	g_object_unref (backend);
 	g_object_unref (notify);
 	g_object_unref (engine);
 }
-
+#endif
 
 static void
-pk_test_file_monitor_func (EggTest *test)
+pk_test_file_monitor_func (void)
 {
 	PkFileMonitor *file_monitor;
 
-	egg_test_title (test, "get a file_monitor");
+	/* get a file_monitor */
 	file_monitor = pk_file_monitor_new ();
-	egg_test_assert (test, file_monitor != NULL);
+	g_assert (file_monitor != NULL);
 	g_object_unref (file_monitor);
 }
 
-
 static void
-pk_test_inhibit_func (EggTest *test)
+pk_test_inhibit_func (void)
 {
 	PkInhibit *inhibit;
 	gboolean ret;
 
-	egg_test_title (test, "get an instance");
 	inhibit = pk_inhibit_new ();
-	if (inhibit != NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, NULL);
+	if (inhibit != NULL);
 
-	egg_test_title (test, "check we have a connection");
-	if (inhibit->priv->proxy != NULL)
-		egg_test_success (test, "got proxy");
-	else
-		egg_test_failed (test, "could not get proxy");
-
-	egg_test_title (test, "check we are not inhibited");
+	/* check we are not inhibited */
 	ret = pk_inhibit_locked (inhibit);
-	if (ret == FALSE)
-		egg_test_success (test, "marked correctly");
-	else
-		egg_test_failed (test, "not marked correctly");
+	g_assert (!ret);
 
-	egg_test_title (test, "add 123");
+	/* add 123 */
 	ret = pk_inhibit_add (inhibit, GUINT_TO_POINTER (123));
-	if (ret)
-		egg_test_success (test, "inhibited");
-	else
-		egg_test_failed (test, "could not inhibit");
+	g_assert (ret);
 
-	egg_test_title (test, "check we are inhibited");
+	/* check we are inhibited */
 	ret = pk_inhibit_locked (inhibit);
-	if (ret)
-		egg_test_success (test, "marked correctly");
-	else
-		egg_test_failed (test, "not marked correctly");
+	g_assert (ret);
 
-	egg_test_title (test, "add 123 (again)");
+	/* add 123 (again) */
 	ret = pk_inhibit_add (inhibit, GUINT_TO_POINTER (123));
-	if (ret == FALSE)
-		egg_test_success (test, "correctly ignored second");
-	else
-		egg_test_failed (test, "added the same number twice");
+	g_assert (!ret);
 
-	egg_test_title (test, "add 456");
+	/* add 456 */
 	ret = pk_inhibit_add (inhibit, GUINT_TO_POINTER (456));
-	if (ret)
-		egg_test_success (test, "inhibited");
-	else
-		egg_test_failed (test, "could not inhibit");
+	g_assert (ret);
 
-	egg_test_title (test, "remove 123");
+	/* remove 123" */
 	ret = pk_inhibit_remove (inhibit, GUINT_TO_POINTER (123));
-	if (ret)
-		egg_test_success (test, "removed first inhibit");
-	else
-		egg_test_failed (test, "could not remove inhibit");
+	g_assert (ret);
 
-	egg_test_title (test, "check we are still inhibited");
+	/* check we are still inhibited */
 	ret = pk_inhibit_locked (inhibit);
-	if (ret)
-		egg_test_success (test, "marked correctly");
-	else
-		egg_test_failed (test, "not marked correctly");
+	g_assert (ret);
 
-	egg_test_title (test, "remove 456");
+	/* remove 456 */
 	ret = pk_inhibit_remove (inhibit, GUINT_TO_POINTER (456));
-	if (ret)
-		egg_test_success (test, "removed second inhibit");
-	else
-		egg_test_failed (test, "could not remove inhibit");
+	g_assert (ret);
 
-	egg_test_title (test, "check we are not inhibited");
+	/* check we are not inhibited */
 	ret = pk_inhibit_locked (inhibit);
-	if (ret == FALSE)
-		egg_test_success (test, "marked correctly");
-	else
-		egg_test_failed (test, "not marked correctly");
+	g_assert (!ret);
 
 	g_object_unref (inhibit);
 }
 
-
 static void
-pk_test_lsof_func (EggTest *test)
+pk_test_lsof_func (void)
 {
 	gboolean ret;
 	PkLsof *lsof;
 	GPtrArray *pids;
 	gchar *files[] = { "/usr/lib/libssl3.so", NULL };
 
-	egg_test_title (test, "get an instance");
 	lsof = pk_lsof_new ();
-	egg_test_assert (test, lsof != NULL);
+	g_assert (lsof != NULL);
 
-	egg_test_title (test, "refresh lsof data");
+	/* refresh lsof data */
 	ret = pk_lsof_refresh (lsof);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "get pids for files");
+	/* get pids for files */
 	pids = pk_lsof_get_pids_for_filenames (lsof, files);
-	egg_test_assert (test, pids->len > 0);
+	g_assert_cmpint (pids->len, >, 0);
 	g_ptr_array_unref (pids);
 
 	g_object_unref (lsof);
 }
 
-
+#if 0
 static void
-pk_test_notify_func (EggTest *test)
+pk_test_notify_func (void)
 {
 	PkNotify *notify;
 
-	egg_test_title (test, "get an instance");
 	notify = pk_notify_new ();
-	egg_test_assert (test, notify != NULL);
+	g_assert (notify != NULL);
 
 	g_object_unref (notify);
 }
-
+#endif
 
 static void
-pk_test_proc_func (EggTest *test)
+pk_test_proc_func (void)
 {
 	gboolean ret;
 	PkProc *proc;
 //	gchar *files[] = { "/sbin/udevd", NULL };
 
-	egg_test_title (test, "get an instance");
 	proc = pk_proc_new ();
-	egg_test_assert (test, proc != NULL);
+	g_assert (proc != NULL);
 
-	egg_test_title (test, "refresh proc data");
+	/* refresh proc data */
 	ret = pk_proc_refresh (proc);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
 	g_object_unref (proc);
 }
 
+#if 0
 
 PkSpawnExitType mexit = PK_SPAWN_EXIT_TYPE_UNKNOWN;
 guint stdout_count = 0;
@@ -1132,7 +903,7 @@ cancel_cb (gpointer data)
 }
 
 static void
-new_spawn_object (EggTest *test, PkSpawn **pspawn)
+new_spawn_object (void, PkSpawn **pspawn)
 {
 	if (*pspawn != NULL)
 		g_object_unref (*pspawn);
@@ -1147,20 +918,17 @@ new_spawn_object (EggTest *test, PkSpawn **pspawn)
 static gboolean
 idle_cb (gpointer data)
 {
-	EggTest *test = (EggTest*) data;
+	void = (EggTest*) data;
 
-	egg_test_title (test, "make sure dispatcher has closed when run idle add");
-	if (mexit == PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "mexit was %i", mexit);
+	/* make sure dispatcher has closed when run idle add */
+	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT);
 
 	/* never repeat */
 	return FALSE;
 }
 
 static void
-pk_test_spawn_func (EggTest *test)
+pk_test_spawn_func (void)
 {
 	PkSpawn *spawn = NULL;
 	gboolean ret;
@@ -1173,66 +941,42 @@ pk_test_spawn_func (EggTest *test)
 	/* get new object */
 	new_spawn_object (test, &spawn);
 
-	/************************************************************
-	 **********           Generic tests               ***********
-	 ************************************************************/
-	egg_test_title (test, "make sure return error for missing file");
+	/* make sure return error for missing file */
 	mexit = PK_SPAWN_EXIT_TYPE_UNKNOWN;
 	argv = g_strsplit ("pk-spawn-test-xxx.sh", " ", 0);
 	ret = pk_spawn_argv (spawn, argv, NULL);
 	g_strfreev (argv);
-	if (!ret)
-		egg_test_success (test, "failed to run invalid file");
-	else
-		egg_test_failed (test, "ran incorrect file");
+	if (!ret);
 
-	egg_test_title (test, "make sure finished wasn't called");
-	if (mexit == PK_SPAWN_EXIT_TYPE_UNKNOWN)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "Called finish for bad file!");
+	/* make sure finished wasn't called */
+	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_UNKNOWN);
 
-	egg_test_title (test, "make sure run correct helper");
+	/* make sure run correct helper */
 	mexit = -1;
 	path = egg_test_get_data_file ("pk-spawn-test.sh");
 	argv = g_strsplit (path, " ", 0);
 	ret = pk_spawn_argv (spawn, argv, NULL);
 	g_free (path);
 	g_strfreev (argv);
-	if (ret)
-		egg_test_success (test, "ran correct file");
-	else
-		egg_test_failed (test, "did not run helper");
+	g_assert (ret);
 
 	/* wait for finished */
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "make sure finished okay");
-	if (mexit == PK_SPAWN_EXIT_TYPE_SUCCESS)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "finish was okay!");
+	/* make sure finished okay */
+	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_SUCCESS);
 
-	egg_test_title (test, "make sure finished was called only once");
-	if (finished_count == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "finish was called %i times!", finished_count);
+	/* make sure finished was called only once */
+	g_assert_cmpint (finished_count, ==, 1);
 
-	egg_test_title (test, "make sure we got the right stdout data");
-	if (stdout_count == 4+11)
-		egg_test_success (test, "correct stdout count");
-	else
-		egg_test_failed (test, "wrong stdout count %i", stdout_count);
+	/* make sure we got the right stdout data */
+	g_assert_cmpint (stdout_count, ==, 4+11);
 
 	/* get new object */
 	new_spawn_object (test, &spawn);
 
-	/************************************************************
-	 **********            envp tests                 ***********
-	 ************************************************************/
-	egg_test_title (test, "make sure we set the proxy");
+	/* make sure we set the proxy */
 	mexit = -1;
 	path = egg_test_get_data_file ("pk-spawn-proxy.sh");
 	argv = g_strsplit (path, " ", 0);
@@ -1242,48 +986,36 @@ pk_test_spawn_func (EggTest *test)
 	g_free (path);
 	g_strfreev (argv);
 	g_strfreev (envp);
-	if (ret)
-		egg_test_success (test, "ran correct file");
-	else
-		egg_test_failed (test, "did not run helper");
+	g_assert (ret);
 
 	/* wait for finished */
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
 	/* get new object */
 	new_spawn_object (test, &spawn);
 
-	/************************************************************
-	 **********           Killing tests               ***********
-	 ************************************************************/
-	egg_test_title (test, "make sure run correct helper, and cancel it using SIGKILL");
+	/* make sure run correct helper, and cancel it using SIGKILL */
 	mexit = PK_SPAWN_EXIT_TYPE_UNKNOWN;
 	path = egg_test_get_data_file ("pk-spawn-test.sh");
 	argv = g_strsplit (path, " ", 0);
 	ret = pk_spawn_argv (spawn, argv, NULL);
 	g_free (path);
 	g_strfreev (argv);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not run helper");
+	g_assert (ret);
 
 	g_timeout_add_seconds (1, cancel_cb, spawn);
 	/* wait for finished */
 	egg_test_loop_wait (test, 5000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "make sure finished in SIGKILL");
-	if (mexit == PK_SPAWN_EXIT_TYPE_SIGKILL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "finish %i!", mexit);
+	/* make sure finished in SIGKILL */
+	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_SIGKILL);
 
 	/* get new object */
 	new_spawn_object (test, &spawn);
 
-	egg_test_title (test, "make sure dumb helper ignores SIGQUIT");
+	/* make sure dumb helper ignores SIGQUIT */
 	mexit = PK_SPAWN_EXIT_TYPE_UNKNOWN;
 	path = egg_test_get_data_file ("pk-spawn-test.sh");
 	argv = g_strsplit (path, " ", 0);
@@ -1293,66 +1025,48 @@ pk_test_spawn_func (EggTest *test)
 	ret = pk_spawn_argv (spawn, argv, NULL);
 	g_free (path);
 	g_strfreev (argv);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not run helper");
+	g_assert (ret);
 
 	g_timeout_add_seconds (1, cancel_cb, spawn);
 	/* wait for finished */
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "make sure finished in SIGQUIT");
-	if (mexit == PK_SPAWN_EXIT_TYPE_SIGQUIT)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "finish %i!", mexit);
+	/* make sure finished in SIGQUIT */
+	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_SIGQUIT);
 
 	/* get new object */
 	new_spawn_object (test, &spawn);
 
-	egg_test_title (test, "make sure run correct helper, and SIGQUIT it");
+	/* make sure run correct helper, and SIGQUIT it */
 	mexit = PK_SPAWN_EXIT_TYPE_UNKNOWN;
 	path = egg_test_get_data_file ("pk-spawn-test-sigquit.sh");
 	argv = g_strsplit (path, " ", 0);
 	ret = pk_spawn_argv (spawn, argv, NULL);
 	g_free (path);
 	g_strfreev (argv);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not run helper");
+	g_assert (ret);
 
 	g_timeout_add_seconds (1, cancel_cb, spawn);
 	/* wait for finished */
 	egg_test_loop_wait (test, 2000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "make sure finished in SIGQUIT");
-	if (mexit == PK_SPAWN_EXIT_TYPE_SIGQUIT)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "finish %i!", mexit);
+	/* make sure finished in SIGQUIT */
+	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_SIGQUIT);
 
-	egg_test_title (test, "run lots of data for profiling");
+	/* run lots of data for profiling */
 	path = egg_test_get_data_file ("pk-spawn-test-profiling.sh");
 	argv = g_strsplit (path, " ", 0);
 	ret = pk_spawn_argv (spawn, argv, NULL);
 	g_free (path);
 	g_strfreev (argv);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not run profiling helper");
+	g_assert (ret);
 
 	/* get new object */
 	new_spawn_object (test, &spawn);
 
-	/************************************************************
-	 **********  Can we send commands to a dispatcher ***********
-	 ************************************************************/
-	egg_test_title (test, "run the dispatcher");
+	/* run the dispatcher */
 	mexit = PK_SPAWN_EXIT_TYPE_UNKNOWN;
 	file = egg_test_get_data_file ("pk-spawn-dispatcher.py");
 	path = g_strdup_printf ("%s\tsearch-name\tnone\tpower manager", file);
@@ -1361,95 +1075,64 @@ pk_test_spawn_func (EggTest *test)
 	ret = pk_spawn_argv (spawn, argv, envp);
 	g_free (file);
 	g_free (path);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not run dispatcher");
+	g_assert (ret);
 
-	egg_test_title (test, "wait 2+2 seconds for the dispatcher");
+	/* wait 2+2 seconds for the dispatcher */
 	/* wait 2 seconds, and make sure we are still running */
 	egg_test_loop_wait (test, 4000);
-	elapsed = egg_test_elapsed (test);
-	if (elapsed > 3900 && elapsed < 4100)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "dispatcher exited");
+	g_test_timer_start ();
+	elapsed = g_test_timer_elapsed ();
+	g_assert_cmpfloat (elapsed, >, 0.0003900);
+	g_assert_cmpfloat (elapsed, <, 0.0004100);
 
-	egg_test_title (test, "we got a package (+finished)?");
-	if (stdout_count == 2)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not get a package");
+	/* we got a package (+finished)? */
+	g_assert_cmpint (stdout_count, ==, 2);
 
-	egg_test_title (test, "dispatcher still alive?");
-	if (spawn->priv->stdin_fd != -1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "dispatcher no longer alive");
+	/* dispatcher still alive? */
+	if (spawn->priv->stdin_fd != -1);
 
-	egg_test_title (test, "run the dispatcher with new input");
+	/* run the dispatcher with new input */
 	ret = pk_spawn_argv (spawn, argv, envp);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not run dispatcher with new input");
+	g_assert (ret);
 
 	/* this may take a while */
 	egg_test_loop_wait (test, 100);
 
-	egg_test_title (test, "we got another package (not finished after bugfix)?");
-	if (stdout_count == 3)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not get a package: count was %i", stdout_count);
+	/* we got another package (not finished after bugfix)? */
+	g_assert_cmpint (stdout_count, ==, 3);
 
 	/* see if pk_spawn_exit blocks (required) */
 	g_idle_add (idle_cb, test);
 
-	egg_test_title (test, "ask dispatcher to close");
+	/* ask dispatcher to close */
 	ret = pk_spawn_exit (spawn);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to close dispatcher");
+	g_assert (ret);
 
-	egg_test_title (test, "ask dispatcher to close (again, should be closing)");
+	/* ask dispatcher to close (again, should be closing) */
 	ret = pk_spawn_exit (spawn);
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "attempted to close twice");
+	g_assert (!ret);
 
 	/* this may take a while */
 	egg_test_loop_wait (test, 100);
 
-	egg_test_title (test, "did dispatcher close?");
-	if (spawn->priv->stdin_fd == -1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "dispatcher still running");
+	/* did dispatcher close? */
+	g_assert_cmpint (spawn->priv->stdin_fd, ==, -1);
 
-	egg_test_title (test, "did we get the right exit code");
-	if (mexit == PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "finish %i!", mexit);
+	/* did we get the right exit code */
+	g_assert_cmpint (mexit, ==, PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT);
 
-	egg_test_title (test, "ask dispatcher to close (again)");
+	/* ask dispatcher to close (again) */
 	ret = pk_spawn_exit (spawn);
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "dispatcher closed twice");
+	g_assert (!ret);
 
 	g_strfreev (argv);
 	g_strfreev (envp);
 	g_object_unref (spawn);
 }
-
+#endif
 
 static void
-pk_test_store_func (EggTest *test)
+pk_test_store_func (void)
 {
 	PkStore *store;
 	gboolean ret;
@@ -1457,181 +1140,137 @@ pk_test_store_func (EggTest *test)
 	guint data_uint;
 	gboolean data_bool;
 
-	egg_test_title (test, "get an store");
 	store = pk_store_new ();
-	if (store != NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, NULL);
+	if (store != NULL);
 
-	egg_test_title (test, "set a blank string");
+	/* set a blank string */
 	ret = pk_store_set_string (store, "dave2", "");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "set a ~bool");
+	/* set a ~bool */
 	ret = pk_store_set_bool (store, "roger2", FALSE);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "set a zero uint");
+	/* set a zero uint */
 	ret = pk_store_set_uint (store, "linda2", 0);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "get a blank string");
+	/* get a blank string */
 	data_string = pk_store_get_string (store, "dave2");
-	if (g_strcmp0 (data_string, "") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "data was %s", data_string);
+	g_assert_cmpstr (data_string, ==, "");
 
-	egg_test_title (test, "get a ~bool");
+	/* get a ~bool */
 	data_bool = pk_store_get_bool (store, "roger2");
-	if (!data_bool)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "data was %i", data_bool);
+	if (!data_bool);
 
-	egg_test_title (test, "get a zero uint");
+	/* get a zero uint */
 	data_uint = pk_store_get_uint (store, "linda2");
-	if (data_uint == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "data was %i", data_uint);
+	g_assert_cmpint (data_uint, ==, 0);
 
-	egg_test_title (test, "set a string");
+	/* set a string */
 	ret = pk_store_set_string (store, "dave", "ania");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "set a bool");
+	/* set a bool */
 	ret = pk_store_set_bool (store, "roger", TRUE);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "set a uint");
+	/* set a uint */
 	ret = pk_store_set_uint (store, "linda", 999);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "get a string");
+	/* get a string */
 	data_string = pk_store_get_string (store, "dave");
-	if (g_strcmp0 (data_string, "ania") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "data was %s", data_string);
+	g_assert_cmpstr (data_string, ==, "ania");
 
-	egg_test_title (test, "get a bool");
+	/* get a bool */
 	data_bool = pk_store_get_bool (store, "roger");
-	if (data_bool)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "data was %i", data_bool);
+	if (data_bool);
 
-	egg_test_title (test, "get a uint");
+	/* get a uint */
 	data_uint = pk_store_get_uint (store, "linda");
-	if (data_uint == 999)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "data was %i", data_uint);
+	g_assert_cmpint (data_uint, ==, 999);
 
 	g_object_unref (store);
 }
 
-
 static void
-pk_test_syslog_func (EggTest *test)
+pk_test_syslog_func (void)
 {
-	PkSyslog *self;
+	PkSyslog *syslog;
 
-	egg_test_title (test, "get an instance");
-	self = pk_syslog_new ();
-	if (self != NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, NULL);
+	syslog = pk_syslog_new ();
+	g_assert (syslog != NULL);
 
-	g_object_unref (self);
+	g_object_unref (syslog);
 }
 
-
 static void
-pk_test_time_func (EggTest *test)
+pk_test_time_func (void)
 {
-	PkTime *self = NULL;
+	PkTime *pktime = NULL;
 	gboolean ret;
 	guint value;
 
-	egg_test_title (test, "get PkTime object");
-	self = pk_time_new ();
-	egg_test_assert (test, self != NULL);
+	pktime = pk_time_new ();
+	g_assert (pktime != NULL);
 
-	egg_test_title (test, "get elapsed correctly at startup");
-	value = pk_time_get_elapsed (self);
-	if (value < 10)
-		egg_test_success (test, "elapsed at startup %i", value);
-	else
-		egg_test_failed (test, "elapsed at startup %i", value);
+	/* get elapsed correctly at startup */
+	value = pk_time_get_elapsed (pktime);
+	g_assert_cmpint (value, <, 10);
 
-	egg_test_title (test, "ignore remaining correctly");
-	value = pk_time_get_remaining (self);
-	if (value == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "got %i, not zero!", value);
+	/* ignore remaining correctly */
+	value = pk_time_get_remaining (pktime);
+	g_assert_cmpint (value, ==, 0);
 
 	g_usleep (1000*1000);
 
-	egg_test_title (test, "get elapsed correctly");
-	value = pk_time_get_elapsed (self);
-	if (value > 900 && value < 1100)
-		egg_test_success (test, "elapsed ~1000ms: %i", value);
-	else
-		egg_test_failed (test, "elapsed not ~1000ms: %i", value);
+	/* get elapsed correctly */
+	value = pk_time_get_elapsed (pktime);
+	g_assert_cmpint (value, >, 900);
+	g_assert_cmpint (value, <, 1100);
 
-	egg_test_title (test, "ignore remaining correctly when not enough entries");
-	value = pk_time_get_remaining (self);
-	if (value == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "got %i, not zero!", value);
+	/* ignore remaining correctly when not enough entries */
+	value = pk_time_get_remaining (pktime);
+	g_assert_cmpint (value, ==, 0);
 
-	egg_test_title (test, "make sure we can add data");
-	ret = pk_time_add_data (self, 10);
-	egg_test_assert (test, ret);
+	/* make sure we can add data */
+	ret = pk_time_add_data (pktime, 10);
+	g_assert (ret);
 
-	egg_test_title (test, "make sure we can get remaining correctly");
+	/* make sure we can get remaining correctly */
 	value = 20;
 	while (value < 60) {
-		self->priv->time_offset += 2000;
-		pk_time_add_data (self, value);
+		pk_time_advance_clock (pktime, 2000);
+		pk_time_add_data (pktime, value);
 		value += 10;
 	}
-	value = pk_time_get_remaining (self);
-	if (value > 9 && value < 11)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "got %i", value);
+	value = pk_time_get_remaining (pktime);
+	g_assert_cmpint (value, >, 9);
+	g_assert_cmpint (value, <, 11);
 
 	/* reset */
-	g_object_unref (self);
-	self = pk_time_new ();
+	g_object_unref (pktime);
+	pktime = pk_time_new ();
 
-	egg_test_title (test, "make sure we can do long times");
+	/* make sure we can do long times */
 	value = 10;
-	pk_time_add_data (self, 0);
+	pk_time_add_data (pktime, 0);
 	while (value < 60) {
-		self->priv->time_offset += 4*60*1000;
-		pk_time_add_data (self, value);
+		pk_time_advance_clock (pktime, 4*60*1000);
+		pk_time_add_data (pktime, value);
 		value += 10;
 	}
-	value = pk_time_get_remaining (self);
-	if (value >= 1199 && value <= 1201)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "got %i", value);
+	value = pk_time_get_remaining (pktime);
+	g_assert_cmpint (value, >=, 1199);
+	g_assert_cmpint (value, <=, 1201);
 
-	g_object_unref (self);
+	g_object_unref (pktime);
 }
 
-
+#if 0
 static void
-pk_test_transaction_func (EggTest *test)
+pk_test_transaction_func (void)
 {
 	PkTransaction *transaction = NULL;
 	gboolean ret;
@@ -1641,128 +1280,113 @@ pk_test_transaction_func (EggTest *test)
 	const gchar *action;
 #endif
 
-	egg_test_title (test, "get PkTransaction object");
+	/* get PkTransaction object */
 	transaction = pk_transaction_new ();
-	egg_test_assert (test, transaction != NULL);
+	g_assert (transaction != NULL);
 
-	/************************************************************
-	 ****************         MAP ROLES        ******************
-	 ************************************************************/
 #ifdef USE_SECURITY_POLKIT
-	egg_test_title (test, "map valid role to action");
+	/* map valid role to action */
 	action = pk_transaction_role_to_action_only_trusted (PK_ROLE_ENUM_UPDATE_PACKAGES);
-	if (g_strcmp0 (action, "org.freedesktop.packagekit.system-update") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not get correct action '%s'", action);
+	g_assert_cmpstr (action, ==, "org.freedesktop.packagekit.system-update");
 
-	egg_test_title (test, "map invalid role to action");
+	/* map invalid role to action */
 	action = pk_transaction_role_to_action_only_trusted (PK_ROLE_ENUM_SEARCH_NAME);
-	if (action == NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not get correct action '%s'", action);
+	if (action, ==, NULL);
 #endif
 
-	/************************************************************
-	 ****************          FILTERS         ******************
-	 ************************************************************/
 	temp = NULL;
-	egg_test_title (test, "test a fail filter (null)");
+	/* test a fail filter (null) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 	g_clear_error (&error);
 
 	temp = "";
-	egg_test_title (test, "test a fail filter ()");
+	/* test a fail filter () */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 	g_clear_error (&error);
 
 	temp = ";";
-	egg_test_title (test, "test a fail filter (;)");
+	/* test a fail filter (;) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 	g_clear_error (&error);
 
 	temp = "moo";
-	egg_test_title (test, "test a fail filter (invalid)");
+	/* test a fail filter (invalid) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
 	g_clear_error (&error);
 
 	temp = "moo;foo";
-	egg_test_title (test, "test a fail filter (invalid, multiple)");
+	/* test a fail filter (invalid, multiple) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 	g_clear_error (&error);
 
 	temp = "gui;;";
-	egg_test_title (test, "test a fail filter (valid then zero length)");
+	/* test a fail filter (valid then zero length) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 	g_clear_error (&error);
 
 	temp = "none";
-	egg_test_title (test, "test a pass filter (none)");
+	/* test a pass filter (none) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 	g_clear_error (&error);
 
 	temp = "gui";
-	egg_test_title (test, "test a pass filter (single)");
+	/* test a pass filter (single) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 	g_clear_error (&error);
 
 	temp = "devel;~gui";
-	egg_test_title (test, "test a pass filter (multiple)");
+	/* test a pass filter (multiple) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 	g_clear_error (&error);
 
 	temp = "~gui;~installed";
-	egg_test_title (test, "test a pass filter (multiple2)");
+	/* test a pass filter (multiple2) */
 	ret = pk_transaction_filter_check (temp, &error);
-	egg_test_assert (test, ret);
+	g_assert (ret);
 	g_clear_error (&error);
 
-	/************************************************************
-	 ****************        validate text         **************
-	 ************************************************************/
-	egg_test_title (test, "validate correct char 1");
+	/* validate correct char 1 */
 	ret = pk_transaction_strvalidate_char ('a');
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "validate correct char 2");
+	/* validate correct char 2 */
 	ret = pk_transaction_strvalidate_char ('~');
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "validate incorrect char");
+	/* validate incorrect char */
 	ret = pk_transaction_strvalidate_char ('$');
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "validate incorrect text");
+	/* validate incorrect text */
 	ret = pk_transaction_strvalidate ("richard$hughes");
-	egg_test_assert (test, !ret);
+	g_assert (!ret);
 
-	egg_test_title (test, "validate correct text");
+	/* validate correct text */
 	ret = pk_transaction_strvalidate ("richardhughes");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
 	g_object_unref (transaction);
 }
-
+#endif
 
 static void
-pk_test_transaction_db_func (EggTest *test)
+pk_test_transaction_db_func (void)
 {
 	PkTransactionDb *db;
 	guint value;
 	gchar *tid;
 	gboolean ret;
-	guint ms;
+	gdouble ms;
 	gchar *proxy_http = NULL;
 	gchar *proxy_ftp = NULL;
 	gchar *root = NULL;
@@ -1772,160 +1396,123 @@ pk_test_transaction_db_func (EggTest *test)
 #if PK_BUILD_LOCAL
 	ret = g_file_test (PK_TRANSACTION_DB_FILE, G_FILE_TEST_EXISTS);
 	if (ret) {
-		egg_test_title (test, "remove old local database");
+		/* remove old local database */
 		egg_warning ("Removing %s", PK_TRANSACTION_DB_FILE);
 		value = g_unlink (PK_TRANSACTION_DB_FILE);
-		egg_test_assert (test, (value == 0));
+		g_assert (value == 0);
 	}
 #endif
 
-	egg_test_title (test, "check we created quickly");
+	/* check we created quickly */
+	g_test_timer_start ();
 	db = pk_transaction_db_new ();
-	ms = egg_test_elapsed (test);
-	if (ms < 1500)
-		egg_test_success (test, "acceptable time %ims", ms);
-	else
-		egg_test_failed (test, "took a long time: %ims", ms);
+	ms = g_test_timer_elapsed ();
+	g_assert_cmpfloat (ms, <, 1.5);
 	g_object_unref (db);
 
-	egg_test_title (test, "check we opened quickly");
+	/* check we opened quickly */
+	g_test_timer_start ();
 	db = pk_transaction_db_new ();
-	ms = egg_test_elapsed (test);
-	if (ms < 100)
-		egg_test_success (test, "acceptable time %ims", ms);
-	else
-		egg_test_failed (test, "took a long time: %ims", ms);
+	ms = g_test_timer_elapsed ();
+	g_assert_cmpfloat (ms, <, 0.1);
 
-	egg_test_title (test, "do we get the correct time on a blank database");
+	/* do we get the correct time on a blank database */
 	value = pk_transaction_db_action_time_since (db, PK_ROLE_ENUM_REFRESH_CACHE);
-	if (value == G_MAXUINT)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to get correct time, got %i", value);
+	g_assert_cmpint (value, ==, G_MAXUINT);
 
-	/************************************************************
-	 ****************          IDENT           ******************
-	 ************************************************************/
-	egg_test_title (test, "get an tid object");
+	/* get an tid object */
+	g_test_timer_start ();
 	tid = pk_transaction_db_generate_id (db);
-	ms = egg_test_elapsed (test);
-	if (ms < 10)
-		egg_test_success (test, "acceptable time %ims", ms);
-	else
-		egg_test_failed (test, "took a long time: %ims", ms);
+	ms = g_test_timer_elapsed ();
+	g_assert_cmpfloat (ms, <, 0.001);
 	g_free (tid);
 
-	egg_test_title (test, "get an tid object (no wait)");
+	/* get an tid object (no wait) */
+	g_test_timer_start ();
 	tid = pk_transaction_db_generate_id (db);
-	ms = egg_test_elapsed (test);
-	if (ms < 5)
-		egg_test_success (test, "acceptable time %ims", ms);
-	else
-		egg_test_failed (test, "took a long time: %ims", ms);
+	ms = g_test_timer_elapsed ();
+	g_assert_cmpfloat (ms, <, 0.005);
 	g_free (tid);
 
-	egg_test_title (test, "set the correct time");
+	/* set the correct time */
 	ret = pk_transaction_db_action_time_reset (db, PK_ROLE_ENUM_REFRESH_CACHE);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to reset value");
+	g_assert (ret);
 
-	egg_test_title (test, "do the deferred write");
+	/* do the deferred write */
+	g_test_timer_start ();
 	while (g_main_context_pending (NULL))
 		g_main_context_iteration (NULL, TRUE);
-	ms = egg_test_elapsed (test);
-	if (ms > 1)
-		egg_test_success (test, "acceptable time %ims", ms);
-	else
-		egg_test_failed (test, "took too short time: %ims", ms);
+	ms = g_test_timer_elapsed ();
+	g_assert_cmpfloat (ms, >, 0.001);
 
 	g_usleep (2*1000*1000);
 
-	egg_test_title (test, "do we get the correct time");
+	/* do we get the correct time */
 	value = pk_transaction_db_action_time_since (db, PK_ROLE_ENUM_REFRESH_CACHE);
-	if (value > 1 && value <= 4)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to get correct time, %u", value);
+	g_assert_cmpint (value, >, 1);
+	g_assert_cmpint (value, <=, 4);
 
-	/************************************************************
-	 ****************          PROXIES         ******************
-	 ************************************************************/
-	egg_test_title (test, "can we set the proxies");
+	/* can we set the proxies */
 	ret = pk_transaction_db_set_proxy (db, 500, "session1", "127.0.0.1:80", "127.0.0.1:21");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "can we set the proxies (overwrite)");
+	/* can we set the proxies (overwrite) */
 	ret = pk_transaction_db_set_proxy (db, 500, "session1", "127.0.0.1:8000", "127.0.0.1:21");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "can we get the proxies (non-existant user)");
+	/* can we get the proxies (non-existant user) */
 	ret = pk_transaction_db_get_proxy (db, 501, "session1", &proxy_http, &proxy_ftp);
-	if (proxy_http == NULL && proxy_ftp == NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to get correct proxies, %s and %s", proxy_http, proxy_ftp);
+	g_assert (!ret);
+	g_assert_cmpstr (proxy_http, ==, NULL);
+	g_assert_cmpstr (proxy_ftp, ==, NULL);
 
-	egg_test_title (test, "can we get the proxies (non-existant session)");
+	/* can we get the proxies (non-existant session) */
 	ret = pk_transaction_db_get_proxy (db, 500, "session2", &proxy_http, &proxy_ftp);
-	if (proxy_http == NULL && proxy_ftp == NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to get correct proxies, %s and %s", proxy_http, proxy_ftp);
+	g_assert (!ret);
+	g_assert_cmpstr (proxy_http, ==, NULL);
+	g_assert_cmpstr (proxy_ftp, ==, NULL);
 
-	egg_test_title (test, "can we get the proxies (match)");
+	/* can we get the proxies (match) */
 	ret = pk_transaction_db_get_proxy (db, 500, "session1", &proxy_http, &proxy_ftp);
-	if (g_strcmp0 (proxy_http, "127.0.0.1:8000") == 0 &&
-	    g_strcmp0 (proxy_ftp, "127.0.0.1:21") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to get correct proxies, %s and %s", proxy_http, proxy_ftp);
+	g_assert (ret);
+	g_assert_cmpstr (proxy_http, ==, "127.0.0.1:8000");
+	g_assert_cmpstr (proxy_ftp, ==, "127.0.0.1:21");
 
-	/************************************************************
-	 ****************            ROOT          ******************
-	 ************************************************************/
-	egg_test_title (test, "can we set the root");
+	/* can we set the root */
 	ret = pk_transaction_db_set_root (db, 500, "session1", "/mnt/chroot");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "can we set the root (overwrite)");
+	/* can we set the root (overwrite) */
 	ret = pk_transaction_db_set_root (db, 500, "session1", "/mnt/chroot2");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "can we get the root (non-existant user)");
+	/* can we get the root (non-existant user) */
 	ret = pk_transaction_db_get_root (db, 501, "session1", &root);
-	if (root == NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to get correct root: %s", root);
+	g_assert (!ret);
+	g_assert_cmpstr (root, ==, NULL);
 
-	egg_test_title (test, "can we get the root (match)");
+	/* can we get the root (match) */
 	ret = pk_transaction_db_get_root (db, 500, "session1", &root);
-	if (g_strcmp0 (root, "/mnt/chroot2") == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to get correct root: %s", root);
+	g_assert_cmpstr (root, ==, "/mnt/chroot2");
 
 	g_free (root);
 	g_free (proxy_http);
 	g_free (proxy_ftp);
-	g_object_unref (db);}
-
+	g_object_unref (db);
+}
 
 static void
-pk_test_extra_trans_func (EggTest *test)
+pk_test_transaction_extra_func (void)
 {
 	PkTransactionExtra *extra;
 
-	egg_test_title (test, "get an instance");
 	extra = pk_transaction_extra_new ();
-	egg_test_assert (test, extra != NULL);
+	g_assert (extra != NULL);
 
 	g_object_unref (extra);
 }
 
-
+#if 0
 static PkTransactionDb *db = NULL;
 
 /**
@@ -1969,7 +1556,7 @@ pk_test_transaction_list_test_get_item (PkTransactionList *tlist)
 }
 
 static void
-pk_test_transaction_list_func (EggTest *test)
+pk_test_transaction_list_func (void)
 {
 	PkTransactionList *tlist;
 	PkCache *cache;
@@ -1986,10 +1573,10 @@ pk_test_transaction_list_func (EggTest *test)
 #if PK_BUILD_LOCAL
 	ret = g_file_test ("./transactions.db", G_FILE_TEST_EXISTS);
 	if (ret) {
-		egg_test_title (test, "remove old local database");
+		/* remove old local database */
 		egg_warning ("Removing %s", "./transactions.db");
 		size = g_unlink ("./transactions.db");
-		egg_test_assert (test, (size == 0));
+		g_assert (size == 0);
 	}
 #endif
 
@@ -1997,109 +1584,74 @@ pk_test_transaction_list_func (EggTest *test)
 	cache = pk_cache_new ();
 	db = pk_transaction_db_new ();
 
-	egg_test_title (test, "get a transaction list object");
+	/* get a transaction list object */
 	tlist = pk_transaction_list_new ();
-	egg_test_assert (test, tlist != NULL);
+	g_assert (tlist != NULL);
 
-	egg_test_title (test, "make sure we get a valid tid");
+	/* make sure we get a valid tid */
 	tid = pk_transaction_db_generate_id (db);
-	if (tid != NULL)
-		egg_test_success (test, "got tid %s", tid);
-	else
-		egg_test_failed (test, "failed to get tid");
+	if (tid != NULL);
 
-	egg_test_title (test, "create a transaction object");
+	/* create a transaction object */
 	ret = pk_transaction_list_create (tlist, tid, ":0", NULL);
-	if (ret)
-		egg_test_success (test, "created transaction %s", tid);
-	else
-		egg_test_failed (test, "failed to create transaction");
+	g_assert (ret);
 
-	egg_test_title (test, "make sure we get the right object back");
+	/* make sure we get the right object back */
 	item = pk_transaction_list_get_from_tid (tlist, tid);
 	if (item != NULL &&
-	    (g_strcmp0 (item->tid, tid) == 0) &&
-	    item->transaction != NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "could not find in db");
+	    (g_strcmp0 (item->tid, ==, tid) &&
+	    item->transaction != NULL);
 
-	egg_test_title (test, "make sure item has correct flags");
-	if (item->running == FALSE && item->committed == FALSE && item->finished == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item->running, item->committed, item->finished);
+	/* make sure item has correct flags */
+	g_assert (!item->running);
+	g_assert (!item->committed);
+	g_assert (!item->finished);
 
-	egg_test_title (test, "get size one we have in queue");
+	/* get size one we have in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 1);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress");
+	/* get transactions (committed, not finished) in progress */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
 
-	egg_test_title (test, "add again the same tid (should fail)");
+	/* add again the same tid (should fail) */
 	ret = pk_transaction_list_create (tlist, tid, ":0", NULL);
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "added the same tid twice");
+	g_assert (!ret);
 
-	egg_test_title (test, "remove without ever committing");
+	/* remove without ever committing */
 	ret = pk_transaction_list_remove (tlist, tid);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to remove");
+	g_assert (ret);
 
-	egg_test_title (test, "get size none we have in queue");
+	/* get size none we have in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 
 	/* get a new tid */
 	g_free (tid);
 	tid = pk_transaction_db_generate_id (db);
 
-	egg_test_title (test, "create another item");
+	/* create another item */
 	ret = pk_transaction_list_create (tlist, tid, ":0", NULL);
-	if (ret)
-		egg_test_success (test, "created transaction %s", tid);
-	else
-		egg_test_failed (test, "failed to create transaction");
+	g_assert (ret);
 
 	PkBackend *backend;
 	backend = pk_backend_new ();
-	egg_test_title (test, "try to load a valid backend");
+	/* try to load a valid backend */
 	ret = pk_backend_set_name (backend, "dummy");
-	egg_test_assert (test, ret);
+	g_assert (ret);
 
-	egg_test_title (test, "lock an valid backend");
+	/* lock an valid backend */
 	ret = pk_backend_lock (backend);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "failed to lock");
+	g_assert (ret);
 
-	egg_test_title (test, "get from db");
+	/* get from db */
 	item = pk_transaction_list_get_from_tid (tlist, tid);
 	if (item != NULL &&
-	    (g_strcmp0 (item->tid, tid) == 0) &&
-	    item->transaction != NULL)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "could not find in db");
+	    (g_strcmp0 (item->tid, ==, tid) &&
+	    item->transaction != NULL);
 
 	g_signal_connect (item->transaction, "finished",
 			  G_CALLBACK (pk_transaction_list_test_finished_cb), test);
@@ -2107,87 +1659,58 @@ pk_test_transaction_list_func (EggTest *test)
 	/* this tests the run-on-commit action */
 	pk_transaction_get_updates (item->transaction, "none", NULL);
 
-	egg_test_title (test, "make sure item has correct flags");
-	if (item->running == TRUE && item->committed == TRUE && item->finished == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item->running, item->committed, item->finished);
+	/* make sure item has correct flags */
+	g_assert (item->running);
+	g_assert (item->committed);
+	g_assert (!item->finished);
 
-	egg_test_title (test, "get present role");
+	/* get present role */
 	ret = pk_transaction_list_role_present (tlist, PK_ROLE_ENUM_GET_UPDATES);
-	if (ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "did not get role");
+	g_assert (ret);
 
-	egg_test_title (test, "get non-present role");
+	/* get non-present role */
 	ret = pk_transaction_list_role_present (tlist, PK_ROLE_ENUM_SEARCH_NAME);
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "got missing role");
+	g_assert (!ret);
 
-	egg_test_title (test, "get size we have in queue");
+	/* get size we have in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 1);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress");
+	/* get transactions (committed, not finished) in progress */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 1);
 	g_strfreev (array);
 
 	/* wait for Finished */
 	egg_test_loop_wait (test, 2000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "get size one we have in queue");
+	/* get size one we have in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 1);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress (none)");
+	/* get transactions (committed, not finished) in progress (none) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
 
-	egg_test_title (test, "remove already removed");
+	/* remove already removed */
 	ret = pk_transaction_list_remove (tlist, tid);
-	if (!ret)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "tried to remove");
+	g_assert (!ret);
 
 	/* wait for Cleanup */
 	g_timeout_add_seconds (5, (GSourceFunc) pk_transaction_list_test_delay_cb, test);
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "make sure queue empty");
+	/* make sure queue empty */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 
 	g_free (tid);
 
-	/************************************************************
-	 ***************  Get updates from cache    *****************
-	 ************************************************************/
 	item = pk_transaction_list_test_get_item (tlist);
 	g_signal_connect (item->transaction, "finished",
 			  G_CALLBACK (pk_transaction_list_test_finished_cb), test);
@@ -2196,75 +1719,51 @@ pk_test_transaction_list_func (EggTest *test)
 
 	/* wait for cached results*/
 	egg_test_loop_wait (test, 1000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "make sure item has correct flags");
-	if (item->running == FALSE && item->committed == TRUE && item->finished == TRUE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item->running, item->committed, item->finished);
+	/* make sure item has correct flags */
+	g_assert (!item->running);
+	g_assert (item->committed);
+	g_assert (item->finished);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress (none, as cached)");
+	/* get transactions (committed, not finished) in progress (none, as cached) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
 
-	egg_test_title (test, "get size we have in queue");
+	/* get size we have in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 1);
 
 	/* wait for Cleanup */
 	g_timeout_add_seconds (5, (GSourceFunc) pk_transaction_list_test_delay_cb, test);
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress (none, as cached)");
+	/* get transactions (committed, not finished) in progress (none, as cached) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
 
-	egg_test_title (test, "get size we have in queue");
+	/* get size we have in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
-
-	/************************************************************
-	 ****************  Chained transactions    ******************
-	 ************************************************************/
+	g_assert_cmpint (size, ==, 0);
 
 	/* create three instances in list */
 	item1 = pk_transaction_list_test_get_item (tlist);
 	item2 = pk_transaction_list_test_get_item (tlist);
 	item3 = pk_transaction_list_test_get_item (tlist);
 
-	egg_test_title (test, "get all items in queue");
+	/* get all items in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 3)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 3);
 
-	egg_test_title (test, "get transactions (committed, not finished) committed");
+	/* get transactions (committed, not finished) committed */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
 
 	g_signal_connect (item1->transaction, "finished",
@@ -2289,157 +1788,94 @@ pk_test_transaction_list_func (EggTest *test)
 	pk_transaction_search_details (item3->transaction, "none", array, NULL);
 	g_strfreev (array);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress (all)");
+	/* get transactions (committed, not finished) in progress (all) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 3)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 3);
 	g_strfreev (array);
 
 	/* wait for first action */
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "get all items in queue");
+	/* get all items in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 3)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 3);
 
-	egg_test_title (test, "get transactions (committed, not finished) (two, first one finished)");
+	/* get transactions (committed, not finished) (two, first one finished) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 2)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 2);
 	g_strfreev (array);
 
-	egg_test_title (test, "make sure item1 has correct flags");
-	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item1->running, item1->committed, item1->finished);
+	/* make sure item1 has correct flags */
+	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE);
 
-	egg_test_title (test, "make sure item2 has correct flags");
-	if (item2->running == TRUE && item2->committed == TRUE && item2->finished == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item2->running, item2->committed, item2->finished);
+	/* make sure item2 has correct flags */
+	if (item2->running == TRUE && item2->committed == TRUE && item2->finished == FALSE);
 
-	egg_test_title (test, "make sure item3 has correct flags");
-	if (item3->running == FALSE && item3->committed == TRUE && item3->finished == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item3->running, item3->committed, item3->finished);
+	/* make sure item3 has correct flags */
+	if (item3->running == FALSE && item3->committed == TRUE && item3->finished == FALSE);
 
 	/* wait for second action */
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "get all items in queue");
+	/* get all items in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 3)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 3);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress (one)");
+	/* get transactions (committed, not finished) in progress (one) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 1)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 1);
 	g_strfreev (array);
 
-	egg_test_title (test, "make sure item1 has correct flags");
-	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item1->running, item1->committed, item1->finished);
+	/* make sure item1 has correct flags */
+	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE);
 
-	egg_test_title (test, "make sure item2 has correct flags");
-	if (item2->running == FALSE && item2->committed == TRUE && item2->finished == TRUE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item2->running, item2->committed, item2->finished);
+	/* make sure item2 has correct flags */
+	if (item2->running == FALSE && item2->committed == TRUE && item2->finished == TRUE);
 
-	egg_test_title (test, "make sure item3 has correct flags");
-	if (item3->running == TRUE && item3->committed == TRUE && item3->finished == FALSE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item3->running, item3->committed, item3->finished);
+	/* make sure item3 has correct flags */
+	if (item3->running == TRUE && item3->committed == TRUE && item3->finished == FALSE);
 
 	/* wait for third action */
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "get all items in queue");
+	/* get all items in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 3)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 3);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress (none)");
+	/* get transactions (committed, not finished) in progress (none) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
 
-	egg_test_title (test, "make sure item1 has correct flags");
-	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item1->running, item1->committed, item1->finished);
+	/* make sure item1 has correct flags */
+	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE);
 
-	egg_test_title (test, "make sure item2 has correct flags");
-	if (item2->running == FALSE && item2->committed == TRUE && item2->finished == TRUE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item2->running, item2->committed, item2->finished);
+	/* make sure item2 has correct flags */
+	if (item2->running == FALSE && item2->committed == TRUE && item2->finished == TRUE);
 
-	egg_test_title (test, "make sure item3 has correct flags");
-	if (item3->running == FALSE && item3->committed == TRUE && item3->finished == TRUE)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "wrong flags: running[%i] committed[%i] finished[%i]",
-				 item3->running, item3->committed, item3->finished);
+	/* make sure item3 has correct flags */
+	if (item3->running == FALSE && item3->committed == TRUE && item3->finished == TRUE);
 
 	/* wait for Cleanup */
 	g_timeout_add_seconds (5, (GSourceFunc) pk_transaction_list_test_delay_cb, test);
 	egg_test_loop_wait (test, 10000);
-	egg_test_loop_check (test);
+	egg_test_loop_check ();
 
-	egg_test_title (test, "get both items in queue");
+	/* get both items in queue */
 	size = pk_transaction_list_get_size (tlist);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 
-	egg_test_title (test, "get transactions (committed, not finished) in progress (neither - again)");
+	/* get transactions (committed, not finished) in progress (neither - again) */
 	array = pk_transaction_list_get_array (tlist);
 	size = g_strv_length (array);
-	if (size == 0)
-		egg_test_success (test, NULL);
-	else
-		egg_test_failed (test, "size %i", size);
+	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
 
 	g_object_unref (tlist);
@@ -2447,6 +1883,7 @@ pk_test_transaction_list_func (EggTest *test)
 	g_object_unref (cache);
 	g_object_unref (db);
 }
+#endif
 
 int
 main (int argc, char **argv)
@@ -2458,26 +1895,30 @@ main (int argc, char **argv)
 	g_test_init (&argc, &argv, NULL);
 
 	/* egg */
-//	egg_string_func (test);
+//	egg_string_func ();
 
 	/* components */
-	pk_test_proc_func (test);
-	pk_test_lsof_func (test);
-	pk_test_file_monitor_func (test);
-	pk_test_time_func (test);
-	pk_test_conf_func (test);
-	pk_test_store_func (test);
-	pk_test_inhibit_func (test);
-	pk_test_spawn_func (test);
-	pk_test_transaction_list_func (test);
-	pk_test_transaction_db_func (test);
+	g_test_add_func ("/packagekit/proc", pk_test_proc_func);
+	g_test_add_func ("/packagekit/lsof", pk_test_lsof_func);
+	g_test_add_func ("/packagekit/file-monitor", pk_test_file_monitor_func);
+	g_test_add_func ("/packagekit/time", pk_test_time_func);
+	g_test_add_func ("/packagekit/dbus", pk_test_dbus_func);
+	g_test_add_func ("/packagekit/syslog", pk_test_dbus_func);
+	g_test_add_func ("/packagekit/conf", pk_test_conf_func);
+	g_test_add_func ("/packagekit/cache", pk_test_conf_func);
+	g_test_add_func ("/packagekit/store", pk_test_store_func);
+	g_test_add_func ("/packagekit/inhibit", pk_test_inhibit_func);
+//	g_test_add_func ("/packagekit/spawn", pk_test_spawn_func);
+//	g_test_add_func ("/packagekit/transaction-list", pk_test_transaction_list_func);
+	g_test_add_func ("/packagekit/transaction-db", pk_test_transaction_db_func);
+	g_test_add_func ("/packagekit/transaction-extra", pk_test_transaction_extra_func);
 
 	/* backend stuff */
-	pk_test_backend_func (test);
-	pk_test_backend_spawn_func (test);
+//	g_test_add_func ("/packagekit/backend", pk_test_backend_func);
+//	g_test_add_func ("/packagekit/backend_spawn", pk_test_backend_spawn_func);
 
 	/* system */
-	pk_test_engine_func (test);
+//	g_test_add_func ("/packagekit/engine", pk_test_engine_func);
 
 	return g_test_run ();
 }

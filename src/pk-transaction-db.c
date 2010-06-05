@@ -50,12 +50,6 @@ static void     pk_transaction_db_finalize	(GObject        *object);
 
 #define PK_TRANSACTION_DB_ID_FILE_OBSOLETE	LOCALSTATEDIR "/lib/PackageKit/job_count.dat"
 
-#if PK_BUILD_LOCAL
-#define PK_TRANSACTION_DB_FILE			"./transactions.db"
-#else
-#define PK_TRANSACTION_DB_FILE			PK_DB_DIR "/transactions.db"
-#endif
-
 struct PkTransactionDbPrivate
 {
 	sqlite3			*db;

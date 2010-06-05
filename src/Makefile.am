@@ -209,8 +209,6 @@ check_PROGRAMS =					\
 
 pk_self_test_SOURCES =					\
 	pk-self-test.c					\
-	egg-test.h					\
-	egg-test.c					\
 	$(shared_SOURCES)				\
 	$(NULL)
 
