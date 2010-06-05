@@ -1792,6 +1792,15 @@ pk_backend_repo_list_changed (PkBackend *backend)
 }
 
 /**
+ * pk_backend_get_is_finished:
+ **/
+gboolean
+pk_backend_get_is_finished (PkBackend *backend)
+{
+	return backend->priv->finished;
+}
+
+/**
  * pk_backend_error_timeout_delay_cb:
  *
  * We have to call Finished() within PK_BACKEND_FINISHED_ERROR_TIMEOUT of ErrorCode(), enforce this.

@@ -25,23 +25,23 @@
 #include <glib-object.h>
 #include <glib/gstdio.h>
 
+#include "pk-backend.h"
 #include "pk-backend-internal.h"
 #include "pk-cache.h"
 #include "pk-conf.h"
+#include "pk-dbus.h"
+#include "pk-file-monitor.h"
+#include "pk-inhibit.h"
 #include "pk-lsof.h"
+#include "pk-notify.h"
+#include "pk-proc.h"
+#include "pk-syslog.h"
 #include "pk-time.h"
 #include "pk-transaction-db.h"
-#include "pk-transaction.h"
-#include "pk-transaction-extra.h"
-#include "pk-transaction-list.h"
-#include "pk-syslog.h"
-#include "pk-dbus.h"
-#include "pk-inhibit.h"
-#include "pk-proc.h"
-#include "pk-file-monitor.h"
 #include "pk-transaction-db.h"
-
-#if 0
+#include "pk-transaction-extra.h"
+#include "pk-transaction.h"
+#include "pk-transaction-list.h"
 
 static guint number_messages = 0;
 static guint number_packages = 0;
@@ -62,7 +62,7 @@ pk_test_backend_message_cb (PkBackend *backend, PkMessageEnum message, const gch
 static void
 pk_test_backend_finished_cb (PkBackend *backend, PkExitEnum exit, GMainLoop *loop)
 {
-	g_main_loop_quit (loop)
+	g_main_loop_quit (loop);
 }
 
 /**
@@ -71,7 +71,7 @@ pk_test_backend_finished_cb (PkBackend *backend, PkExitEnum exit, GMainLoop *loo
 static void
 pk_test_backend_watch_file_cb (PkBackend *backend, GMainLoop *loop)
 {
-	g_main_loop_quit (loop)
+	g_main_loop_quit (loop);
 }
 
 static gboolean
@@ -112,26 +112,7 @@ pk_test_backend_func (void)
 	gboolean ret;
 	const gchar *filename;
 	gboolean developer_mode;
-
-	/* test replace unsafe (okay) */
-	text_safe = pk_backend_strsafe ("Richard Hughes");
-	g_assert_cmpstr (text_safe, ==, "Richard Hughes");
-	g_free (text_safe);
-
-	/* test replace UTF8 unsafe (okay) */
-	text_safe = pk_backend_strsafe ("Gölas");
-	g_assert_cmpstr (text_safe, ==, "Gölas");
-	g_free (text_safe);
-
-	/* test replace unsafe (one invalid) */
-	text_safe = pk_backend_strsafe ("Richard\rHughes");
-	g_assert_cmpstr (text_safe, ==, "Richard Hughes");
-	g_free (text_safe);
-
-	/* test replace unsafe (multiple invalid) */
-	text_safe = pk_backend_strsafe (" Richard\rHughes\f");
-	g_assert_cmpstr (text_safe, ==, " Richard Hughes ");
-	g_free (text_safe);
+	GMainLoop *loop;
 
 	/* get an backend */
 	backend = pk_backend_new ();
@@ -139,7 +120,7 @@ pk_test_backend_func (void)
 
 	/* connect */
 	g_signal_connect (backend, "package",
-			  G_CALLBACK (pk_test_backend_package_cb), test);
+			  G_CALLBACK (pk_test_backend_package_cb), loop);
 
 	/* create a config file */
 	filename = "/tmp/dave";
@@ -147,7 +128,8 @@ pk_test_backend_func (void)
 	g_assert (ret);
 
 	/* set up a watch file on a config file */
-	ret = pk_backend_watch_file (backend, filename, pk_backend_test_watch_file_cb, test);
+	loop = g_main_loop_new (NULL, FALSE);
+	ret = pk_backend_watch_file (backend, filename, (PkBackendFileChanged) pk_test_backend_watch_file_cb, loop);
 	g_assert (ret);
 
 	/* change the config file */
@@ -155,15 +137,14 @@ pk_test_backend_func (void)
 	g_assert (ret);
 
 	/* wait for config file change */
-	egg_test_loop_wait (test, 2000);
-	egg_test_loop_check ();
+	g_main_loop_run (loop);
 
 	/* delete the config file */
 	ret = g_unlink (filename);
 	g_assert (!ret);
 
-	g_signal_connect (backend, "message", G_CALLBACK (pk_test_backend_message_cb), NULL);
-	g_signal_connect (backend, "finished", G_CALLBACK (pk_test_backend_finished_cb), test);
+	g_signal_connect (backend, "message", G_CALLBACK (pk_test_backend_message_cb), loop);
+	g_signal_connect (backend, "finished", G_CALLBACK (pk_test_backend_finished_cb), loop);
 
 	/* get eula that does not exist */
 	ret = pk_backend_is_eula_valid (backend, "license_foo");
@@ -201,9 +182,6 @@ pk_test_backend_func (void)
 	ret = pk_backend_lock (backend);
 	g_assert (ret);
 
-	/* check we are out of init */
-	g_assert (!backend->priv->during_initialize);
-
 	/* get backend name */
 	text = pk_backend_get_name (backend);
 	g_assert_cmpstr (text, ==, "dummy");
@@ -218,10 +196,12 @@ pk_test_backend_func (void)
 	g_assert (ret);
 
 	/* check we are not finished */
-	g_assert (!backend->priv->finished);
+	ret = pk_backend_get_is_finished (backend);
+	g_assert (!ret);
 
 	/* check we have no error */
-	g_assert (!backend->priv->set_error);
+	ret = pk_backend_has_set_error_code (backend);
+	g_assert (!ret);
 
 	/* lock again */
 	ret = pk_backend_lock (backend);
@@ -232,8 +212,9 @@ pk_test_backend_func (void)
 	g_assert (ret);
 
 	/* wait for Finished */
-	egg_test_loop_wait (test, 2000);
-	egg_test_loop_check ();
+	g_main_loop_run (loop);
+//	egg_test_loop_wait (test, 2000);
+//	egg_test_loop_check ();
 
 	/* check duplicate filter */
 	g_assert_cmpint (number_packages, ==, 1);
@@ -244,16 +225,17 @@ pk_test_backend_func (void)
 	/* wait for a thread to return false (straight away) */
 	ret = pk_backend_thread_create (backend, pk_test_backend_func_immediate_false);
 	g_assert (ret);
+
 	/* wait for Finished */
-	egg_test_loop_wait (test, PK_BACKEND_FINISHED_TIMEOUT_GRACE + 100);
-	egg_test_loop_check ();
+	g_main_loop_run (loop);
 
 	pk_backend_reset (backend);
 	pk_backend_error_code (backend, PK_ERROR_ENUM_GPG_FAILURE, "test error");
 
 	/* wait for finished */
-	egg_test_loop_wait (test, PK_BACKEND_FINISHED_ERROR_TIMEOUT + 400);
-	egg_test_loop_check ();
+//	egg_test_loop_wait (test, PK_BACKEND_FINISHED_ERROR_TIMEOUT + 400);
+//	egg_test_loop_check ();
+	g_main_loop_run (loop);
 
 	/* get allow cancel after reset */
 	pk_backend_reset (backend);
@@ -283,29 +265,32 @@ pk_test_backend_func (void)
 	g_object_unref (conf);
 	if (developer_mode) {
 		/* check we enforce finished after error_code */
-		g_assert_cmpint (number_messages, ==, 1)
+		g_assert_cmpint (number_messages, ==, 1);
 	}
 
+	g_main_loop_unref (loop);
 	g_object_unref (backend);
 }
 
-static GMainLoop *loop;
+#if 0
+
+static GMainLoop *_loop;
 static guint number_packages = 0;
 
 /**
- * pk_test_backend_spawn_test_finished_cb:
+ * pk_test_backend_spawn_finished_cb:
  **/
 static void
-pk_test_backend_spawn_test_finished_cb (PkBackend *backend, PkExitEnum exit, PkBackendSpawn *backend_spawn)
+pk_test_backend_spawn_finished_cb (PkBackend *backend, PkExitEnum exit, PkBackendSpawn *backend_spawn)
 {
-	g_main_loop_quit (loop);
+	g_main_loop_quit (_loop);
 }
 
 /**
- * pk_test_backend_spawn_test_package_cb:
+ * pk_test_backend_spawn_package_cb:
  **/
 static void
-pk_test_backend_spawn_test_package_cb (PkBackend *backend, PkInfoEnum info,
+pk_test_backend_spawn_package_cb (PkBackend *backend, PkInfoEnum info,
 				  const gchar *package_id, const gchar *summary,
 				  PkBackendSpawn *backend_spawn)
 {
@@ -534,7 +519,7 @@ pk_test_conf_func (void)
 
 	/* get the default backend */
 	text = pk_conf_get_string (conf, "DefaultBackend");
-	if (text != PK_CONF_VALUE_STRING_MISSING);
+	g_assert (text != PK_CONF_VALUE_STRING_MISSING);
 	g_free (text);
 
 	/* get a string that doesn't exist */
@@ -544,7 +529,7 @@ pk_test_conf_func (void)
 
 	/* get the shutdown timeout */
 	value = pk_conf_get_int (conf, "ShutdownTimeout");
-	if (value != PK_CONF_VALUE_INT_MISSING);
+	g_assert (value != PK_CONF_VALUE_INT_MISSING);
 
 	/* get an int that doesn't exist */
 	value = pk_conf_get_int (conf, "FooBarBaz");
@@ -571,19 +556,19 @@ static gboolean _locked = FALSE;
 static gboolean _restart_schedule = FALSE;
 
 /**
- * pk_test_quit_cb:
+ * pk_test_engine_quit_cb:
  **/
 static void
-pk_test_quit_cb (PkEngine *engine, GMainLoop *loop)
+pk_test_engine_quit_cb (PkEngine *engine, GMainLoop *loop)
 {
 	_quit = TRUE;
 }
 
 /**
- * pk_test_changed_cb:
+ * pk_test_engine_changed_cb:
  **/
 static void
-pk_test_changed_cb (PkEngine *engine, GMainLoop *loop)
+pk_test_engine_changed_cb (PkEngine *engine, GMainLoop *loop)
 {
 	g_object_get (engine,
 		      "locked", &_locked,
@@ -591,38 +576,38 @@ pk_test_changed_cb (PkEngine *engine, GMainLoop *loop)
 }
 
 /**
- * pk_test_updates_changed_cb:
+ * pk_test_engine_updates_changed_cb:
  **/
 static void
-pk_test_updates_changed_cb (PkEngine *engine, GMainLoop *loop)
+pk_test_engine_updates_changed_cb (PkEngine *engine, GMainLoop *loop)
 {
 	g_main_loop_quit (loop)
 }
 
 /**
- * pk_test_repo_list_changed_cb:
+ * pk_test_engine_repo_list_changed_cb:
  **/
 static void
-pk_test_repo_list_changed_cb (PkEngine *engine, GMainLoop *loop)
+pk_test_engine_repo_list_changed_cb (PkEngine *engine, GMainLoop *loop)
 {
 	g_main_loop_quit (loop)
 }
 
 /**
- * pk_test_restart_schedule_cb:
+ * pk_test_engine_restart_schedule_cb:
  **/
 static void
-pk_test_restart_schedule_cb (PkEngine *engine, GMainLoop *loop)
+pk_test_engine_restart_schedule_cb (PkEngine *engine, GMainLoop *loop)
 {
 	_restart_schedule = TRUE;
 	g_main_loop_quit (loop)
 }
 
 /**
- * pk_test_emit_updates_changed_cb:
+ * pk_test_engine_emit_updates_changed_cb:
  **/
 static gboolean
-pk_test_emit_updates_changed_cb (void)
+pk_test_engine_emit_updates_changed_cb (void)
 {
 	PkNotify *notify2;
 	notify2 = pk_notify_new ();
@@ -632,10 +617,10 @@ pk_test_emit_updates_changed_cb (void)
 }
 
 /**
- * pk_test_emit_repo_list_changed_cb:
+ * pk_test_engine_emit_repo_list_changed_cb:
  **/
 static gboolean
-pk_test_emit_repo_list_changed_cb (void)
+pk_test_engine_emit_repo_list_changed_cb (void)
 {
 	PkNotify *notify2;
 	notify2 = pk_notify_new ();
@@ -672,15 +657,15 @@ pk_test_engine_func (void)
 
 	/* connect up signals */
 	g_signal_connect (engine, "quit",
-			  G_CALLBACK (pk_test_quit_cb), test);
+			  G_CALLBACK (pk_test_engine_quit_cb), test);
 	g_signal_connect (engine, "changed",
-			  G_CALLBACK (pk_test_changed_cb), test);
+			  G_CALLBACK (pk_test_engine_changed_cb), test);
 	g_signal_connect (engine, "updates-changed",
-			  G_CALLBACK (pk_test_updates_changed_cb), test);
+			  G_CALLBACK (pk_test_engine_updates_changed_cb), test);
 	g_signal_connect (engine, "repo-list-changed",
-			  G_CALLBACK (pk_test_repo_list_changed_cb), test);
+			  G_CALLBACK (pk_test_engine_repo_list_changed_cb), test);
 	g_signal_connect (engine, "restart-schedule",
-			  G_CALLBACK (pk_test_restart_schedule_cb), test);
+			  G_CALLBACK (pk_test_engine_restart_schedule_cb), test);
 
 	/* get idle at startup */
 	idle = pk_engine_get_seconds_idle (engine);
@@ -701,13 +686,13 @@ pk_test_engine_func (void)
 	g_assert_cmpint (idle, <, 1);
 
 	/* force test notify updates-changed */
-	g_timeout_add (25, (GSourceFunc) pk_test_emit_updates_changed_cb, test);
+	g_timeout_add (25, (GSourceFunc) pk_test_engine_emit_updates_changed_cb, test);
 	xxx
 	egg_test_loop_wait (test, 50);
 	egg_test_loop_check ();
 
 	/* force test notify repo-list-changed */
-	g_timeout_add (25, (GSourceFunc) pk_test_emit_repo_list_changed_cb, test);
+	g_timeout_add (25, (GSourceFunc) pk_test_engine_emit_repo_list_changed_cb, test);
 	xxx
 	egg_test_loop_wait (test, 50);
 	egg_test_loop_check ();
@@ -723,15 +708,15 @@ pk_test_engine_func (void)
 	/* test locked */
 	inhibit = pk_inhibit_new ();
 	pk_inhibit_add (inhibit, GUINT_TO_POINTER (999));
-	if (_locked);
+	g_assert (_locked);
 
 	/* test locked */
 	pk_inhibit_remove (inhibit, GUINT_TO_POINTER (999));
-	if (!_locked);
+	g_assert (!_locked);
 	g_object_unref (inhibit);
 
 	/* test not locked */
-	if (!_locked);
+	g_assert (!_locked);
 
 	egg_test_title_assert (test, "restart_schedule not set", !_restart_schedule);
 	ret = g_file_set_contents (SBINDIR "/packagekitd", "overwrite", -1, NULL);
@@ -748,7 +733,7 @@ pk_test_engine_func (void)
 	egg_test_title_assert (test, "not already quit", !_quit);
 	/* suggest quit with no transactions (should get quit signal) */
 	pk_engine_suggest_daemon_quit (engine, NULL);
-	if (_quit);
+	g_assert (_quit);
 
 	g_object_unref (backend);
 	g_object_unref (notify);
@@ -774,7 +759,7 @@ pk_test_inhibit_func (void)
 	gboolean ret;
 
 	inhibit = pk_inhibit_new ();
-	if (inhibit != NULL);
+	g_assert (inhibit != NULL);
 
 	/* check we are not inhibited */
 	ret = pk_inhibit_locked (inhibit);
@@ -838,7 +823,6 @@ pk_test_lsof_func (void)
 	g_object_unref (lsof);
 }
 
-#if 0
 static void
 pk_test_notify_func (void)
 {
@@ -849,7 +833,6 @@ pk_test_notify_func (void)
 
 	g_object_unref (notify);
 }
-#endif
 
 static void
 pk_test_proc_func (void)
@@ -1091,7 +1074,7 @@ pk_test_spawn_func (void)
 	g_assert_cmpint (stdout_count, ==, 2);
 
 	/* dispatcher still alive? */
-	if (spawn->priv->stdin_fd != -1);
+	g_assert_cmpint (spawn->priv->stdin_fd, !=, -1);
 
 	/* run the dispatcher with new input */
 	ret = pk_spawn_argv (spawn, argv, envp);
@@ -1143,7 +1126,7 @@ pk_test_store_func (void)
 	gboolean data_bool;
 
 	store = pk_store_new ();
-	if (store != NULL);
+	g_assert (store != NULL);
 
 	/* set a blank string */
 	ret = pk_store_set_string (store, "dave2", "");
@@ -1163,7 +1146,7 @@ pk_test_store_func (void)
 
 	/* get a ~bool */
 	data_bool = pk_store_get_bool (store, "roger2");
-	if (!data_bool);
+	g_assert (!data_bool);
 
 	/* get a zero uint */
 	data_uint = pk_store_get_uint (store, "linda2");
@@ -1187,7 +1170,7 @@ pk_test_store_func (void)
 
 	/* get a bool */
 	data_bool = pk_store_get_bool (store, "roger");
-	if (data_bool);
+	g_assert (data_bool);
 
 	/* get a uint */
 	data_uint = pk_store_get_uint (store, "linda");
@@ -1568,7 +1551,7 @@ pk_test_transaction_list_func (void)
 
 	/* make sure we get a valid tid */
 	tid = pk_transaction_db_generate_id (db);
-	if (tid != NULL);
+	g_assert (tid != NULL);
 
 	/* create a transaction object */
 	ret = pk_transaction_list_create (tlist, tid, ":0", NULL);
@@ -1576,9 +1559,9 @@ pk_test_transaction_list_func (void)
 
 	/* make sure we get the right object back */
 	item = pk_transaction_list_get_from_tid (tlist, tid);
-	if (item != NULL &&
-	    (g_strcmp0 (item->tid, ==, tid) &&
-	    item->transaction != NULL);
+	g_assert (item != NULL);
+	g_assert_cmpstr (item->tid, ==, tid);
+	g_assert (item->transaction != NULL);
 
 	/* make sure item has correct flags */
 	g_assert (!item->running);
@@ -1627,9 +1610,9 @@ pk_test_transaction_list_func (void)
 
 	/* get from db */
 	item = pk_transaction_list_get_from_tid (tlist, tid);
-	if (item != NULL &&
-	    (g_strcmp0 (item->tid, ==, tid) &&
-	    item->transaction != NULL);
+	g_assert (item != NULL);
+	g_assert_cmpstr (item->tid, ==, tid);
+	g_assert (item->transaction != NULL);
 
 	g_signal_connect (item->transaction, "finished",
 			  G_CALLBACK (pk_transaction_list_test_finished_cb), test);
@@ -1787,13 +1770,19 @@ pk_test_transaction_list_func (void)
 	g_strfreev (array);
 
 	/* make sure item1 has correct flags */
-	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE);
+	g_assert (!item1->running);
+	g_assert (item1->committed);
+	g_assert (item1->finished);
 
 	/* make sure item2 has correct flags */
-	if (item2->running == TRUE && item2->committed == TRUE && item2->finished == FALSE);
+	g_assert (item2->running);
+	g_assert (item2->committed);
+	g_assert (!item2->finished);
 
 	/* make sure item3 has correct flags */
-	if (item3->running == FALSE && item3->committed == TRUE && item3->finished == FALSE);
+	g_assert (!item3->running);
+	g_assert (item3->committed);
+	g_assert (!item3->finished);
 
 	/* wait for second action */
 	egg_test_loop_wait (test, 10000);
@@ -1810,13 +1799,19 @@ pk_test_transaction_list_func (void)
 	g_strfreev (array);
 
 	/* make sure item1 has correct flags */
-	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE);
+	g_assert (!item1->running);
+	g_assert (item1->committed);
+	g_assert (item1->finished);
 
 	/* make sure item2 has correct flags */
-	if (item2->running == FALSE && item2->committed == TRUE && item2->finished == TRUE);
+	g_assert (!item2->running);
+	g_assert (item2->committed);
+	g_assert (item2->finished);
 
 	/* make sure item3 has correct flags */
-	if (item3->running == TRUE && item3->committed == TRUE && item3->finished == FALSE);
+	if (item3->running);
+	g_assert (item3->committed);
+	g_assert (!item3->finished);
 
 	/* wait for third action */
 	egg_test_loop_wait (test, 10000);
@@ -1833,13 +1828,19 @@ pk_test_transaction_list_func (void)
 	g_strfreev (array);
 
 	/* make sure item1 has correct flags */
-	if (item1->running == FALSE && item1->committed == TRUE && item1->finished == TRUE);
+	g_assert (!item1->running);
+	g_assert (item1->committed);
+	g_assert (item1->finished);
 
 	/* make sure item2 has correct flags */
-	if (item2->running == FALSE && item2->committed == TRUE && item2->finished == TRUE);
+	g_assert (item2->running);
+	g_assert (item2->committed);
+	g_assert (item2->finished);
 
 	/* make sure item3 has correct flags */
-	if (item3->running == FALSE && item3->committed == TRUE && item3->finished == TRUE);
+	g_assert (!item3->running);
+	g_assert (item3->committed);
+	g_assert (item3->finished);
 
 	/* wait for Cleanup */
 	g_timeout_add_seconds (5, (GSourceFunc) pk_transaction_list_test_delay_cb, test);
@@ -1876,6 +1877,7 @@ main (int argc, char **argv)
 //	egg_string_func ();
 
 	/* components */
+	g_test_add_func ("/packagekit/notify", pk_test_proc_func);
 	g_test_add_func ("/packagekit/proc", pk_test_proc_func);
 	g_test_add_func ("/packagekit/lsof", pk_test_lsof_func);
 	g_test_add_func ("/packagekit/file-monitor", pk_test_file_monitor_func);
@@ -1893,7 +1895,7 @@ main (int argc, char **argv)
 	g_test_add_func ("/packagekit/transaction-extra", pk_test_transaction_extra_func);
 
 	/* backend stuff */
-//	g_test_add_func ("/packagekit/backend", pk_test_backend_func);
+	g_test_add_func ("/packagekit/backend", pk_test_backend_func);
 //	g_test_add_func ("/packagekit/backend_spawn", pk_test_backend_spawn_func);
 
 	/* system */
