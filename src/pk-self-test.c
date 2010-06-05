@@ -342,7 +342,7 @@ pk_test_backend_spawn_func (void)
 	/* va_list_to_argv single */
 	array = pk_test_backend_spawn_va_list_to_argv_test ("richard", NULL);
 	g_assert_cmpstr (array[0], ==, "richard");
-	    array[1], ==, NULL);
+	g_assert_cmpstr (array[1], ==, NULL);
 	g_strfreev (array);
 
 	/* va_list_to_argv triple */
@@ -350,7 +350,7 @@ pk_test_backend_spawn_func (void)
 	g_assert_cmpstr (array[0], ==, "richard");
 	g_assert_cmpstr (array[1], ==, "phillip");
 	g_assert_cmpstr (array[2], ==, "hughes");
-	    array[3], ==, NULL);
+	g_assert_cmpstr (array[3], ==, NULL);
 	g_strfreev (array);
 
 	/* get an backend_spawn */
@@ -364,7 +364,7 @@ pk_test_backend_spawn_func (void)
 
 	/* get backend name */
 	text = pk_backend_spawn_get_name (backend_spawn);
-	if (text, ==, NULL);
+	g_assert_cmpstr (text, ==, NULL);
 
 	/* set backend name */
 	ret = pk_backend_spawn_set_name (backend_spawn, "test_spawn");
@@ -376,7 +376,9 @@ pk_test_backend_spawn_func (void)
 
 	/* needed to avoid an error */
 	ret = pk_backend_set_name (backend_spawn->priv->backend, "test_spawn");
+	g_assert (ret);
 	ret = pk_backend_lock (backend_spawn->priv->backend);
+	g_assert (ret);
 
 	/* test pk_backend_spawn_parse_stdout Percentage1 */
 	ret = pk_backend_spawn_parse_stdout (backend_spawn, "percentage\t0");

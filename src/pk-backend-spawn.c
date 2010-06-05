@@ -145,9 +145,6 @@ pk_backend_spawn_start_kill_timer (PkBackendSpawn *backend_spawn)
 
 /**
  * pk_backend_spawn_parse_stdout:
- *
- * If you are editing this function creating a new backend,
- * then you are probably doing something wrong.
  **/
 static gboolean
 pk_backend_spawn_parse_stdout (PkBackendSpawn *backend_spawn, const gchar *line)
