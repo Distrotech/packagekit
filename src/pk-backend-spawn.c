@@ -73,6 +73,16 @@ struct PkBackendSpawnPrivate
 G_DEFINE_TYPE (PkBackendSpawn, pk_backend_spawn, G_TYPE_OBJECT)
 
 /**
+ * pk_backend_spawn_get_backend:
+ **/
+PkBackend *
+pk_backend_spawn_get_backend (PkBackendSpawn *backend_spawn)
+{
+	g_return_val_if_fail (PK_IS_BACKEND_SPAWN (backend_spawn), NULL);
+	return backend_spawn->priv->backend;
+}
+
+/**
  * pk_backend_spawn_set_filter_stdout:
  **/
 gboolean
@@ -591,24 +601,34 @@ pk_backend_spawn_exit_cb (PkSpawn *spawn, PkSpawnExitType exit_enum, PkBackendSp
 }
 
 /**
+ * pk_backend_spawn_inject_data:
+ **/
+gboolean
+pk_backend_spawn_inject_data (PkBackendSpawn *backend_spawn, const gchar *line)
+{
+	gboolean ret;
+	g_return_val_if_fail (PK_IS_BACKEND_SPAWN (backend_spawn), FALSE);
+
+	/* do we ignore with a filter func ? */
+	if (backend_spawn->priv->stdout_func != NULL) {
+		ret = backend_spawn->priv->stdout_func (backend_spawn->priv->backend, line);
+		if (!ret)
+			return TRUE;
+	}
+
+	return pk_backend_spawn_parse_stdout (backend_spawn, line);
+}
+
+/**
  * pk_backend_spawn_stdout_cb:
  **/
 static void
 pk_backend_spawn_stdout_cb (PkBackendSpawn *spawn, const gchar *line, PkBackendSpawn *backend_spawn)
 {
 	gboolean ret;
-	g_return_if_fail (PK_IS_BACKEND_SPAWN (backend_spawn));
-
-	/* do we ignore with a filter func ? */
-	if (backend_spawn->priv->stdout_func != NULL) {
-		ret = backend_spawn->priv->stdout_func (backend_spawn->priv->backend, line);
-		if (!ret)
-			return;
-	}
-
-	ret = pk_backend_spawn_parse_stdout (backend_spawn, line);
+	ret = pk_backend_spawn_inject_data (backend_spawn, line);
 	if (!ret)
-		egg_debug ("failed to parse '%s'", line);
+		egg_debug ("failed to parse: %s", line);
 }
 
 /**
@@ -638,7 +658,7 @@ pk_backend_spawn_stderr_cb (PkBackendSpawn *spawn, const gchar *line, PkBackendS
  * Our proxy variable is typically 'username:password@server:port'
  * but http_proxy expects 'http://username:password@server:port/'
  **/
-static gchar *
+gchar *
 pk_backend_spawn_convert_uri (const gchar *proxy)
 {
 	GString *string;

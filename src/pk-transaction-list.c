@@ -112,6 +112,26 @@ pk_transaction_list_get_from_tid (PkTransactionList *tlist, const gchar *tid)
 }
 
 /**
+ * pk_transaction_list_get_transaction:
+ **/
+PkTransaction *
+pk_transaction_list_get_transaction (PkTransactionList *tlist, const gchar *tid,
+				     gboolean *running, gboolean *committed, gboolean *finished)
+{
+	PkTransactionItem *item;
+	item = pk_transaction_list_get_from_tid (tlist, tid);
+	if (item == NULL)
+		return NULL;
+	if (running != NULL)
+		*running = item->running;
+	if (committed != NULL)
+		*committed = item->committed;
+	if (finished != NULL)
+		*finished = item->finished;
+	return item->transaction;
+}
+
+/**
  * pk_transaction_list_role_present:
  *
  * if there is a queued transaction with this role, useful to avoid having
