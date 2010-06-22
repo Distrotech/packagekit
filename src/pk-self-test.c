@@ -1680,7 +1680,7 @@ pk_test_transaction_list_func (void)
 
 	/* wait for Cleanup */
 	_g_test_loop_wait (10000);
-	
+
 	/* make sure queue empty */
 	size = pk_transaction_list_get_size (tlist);
 	g_assert_cmpint (size, ==, 0);
