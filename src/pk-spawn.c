@@ -61,9 +61,8 @@ struct PkSpawnPrivate
 {
 	pid_t			 child_pid;
 	gint			 stdin_fd;
-	gint			 stdout_fd;
-	gint			 stderr_fd;
-	guint			 poll_id;
+	GIOChannel		*io_channel_stdout;
+	GIOChannel		*io_channel_stderr;
 	guint			 kill_id;
 	gboolean		 finished;
 	gboolean		 background;
@@ -76,6 +75,8 @@ struct PkSpawnPrivate
 	gchar			*last_argv0;
 	gchar			**last_envp;
 	PkConf			*conf;
+	GMainLoop		*waiting_for_exit;
+	guint			 watch_child_id;
 };
 
 enum {
@@ -95,24 +96,6 @@ enum {
 static guint signals [SIGNAL_LAST] = { 0 };
 
 G_DEFINE_TYPE (PkSpawn, pk_spawn, G_TYPE_OBJECT)
-
-/**
- * pk_spawn_read_fd_into_buffer:
- **/
-static gboolean
-pk_spawn_read_fd_into_buffer (gint fd, GString *string)
-{
-	gint bytes_read;
-	gchar buffer[BUFSIZ];
-
-	/* ITS4: ignore, we manually NULL terminate and GString cannot overflow */
-	while ((bytes_read = read (fd, buffer, BUFSIZ-1)) > 0) {
-		buffer[bytes_read] = '\0';
-		g_string_append (string, buffer);
-	}
-
-	return TRUE;
-}
 
 /**
  * pk_spawn_emit_whole_lines:
@@ -171,126 +154,6 @@ pk_spawn_exit_type_enum_to_string (PkSpawnExitType type)
 	if (type == PK_SPAWN_EXIT_TYPE_SIGKILL)
 		return "sigkill";
 	return "unknown";
-}
-
-/**
- * pk_spawn_check_child:
- **/
-static gboolean
-pk_spawn_check_child (PkSpawn *spawn)
-{
-	pid_t pid;
-	int status;
-	gint retval;
-	static guint limit_printing = 0;
-
-	/* this shouldn't happen */
-	if (spawn->priv->finished) {
-		egg_warning ("finished twice!");
-		return FALSE;
-	}
-
-	pk_spawn_read_fd_into_buffer (spawn->priv->stdout_fd, spawn->priv->stdout_buf);
-	pk_spawn_read_fd_into_buffer (spawn->priv->stderr_fd, spawn->priv->stderr_buf);
-
-	/* emit all lines on standard out in one callback, as it's all probably
-	* related to the error that just happened */
-	if (spawn->priv->stderr_buf->len != 0) {
-		g_signal_emit (spawn, signals [SIGNAL_STDERR], 0, spawn->priv->stderr_buf->str);
-		g_string_set_size (spawn->priv->stderr_buf, 0);
-	}
-
-	/* all usual output goes on standard out, only bad libraries bitch to stderr */
-	pk_spawn_emit_whole_lines (spawn, spawn->priv->stdout_buf);
-
-	/* Only print one in twenty times to avoid filling the screen */
-	if (limit_printing++ % 20 == 0)
-		egg_debug ("polling child_pid=%ld (1/20)", (long)spawn->priv->child_pid);
-
-	/* check if the child exited */
-	pid = waitpid (spawn->priv->child_pid, &status, WNOHANG);
-	if (pid == -1) {
-		egg_warning ("failed to get the child PID data for %ld", (long)spawn->priv->child_pid);
-		return TRUE;
-	}
-	if (pid == 0) {
-		/* process still exist, but has not changed state */
-		return TRUE;
-	}
-	if (pid != spawn->priv->child_pid) {
-		egg_warning ("some other process id was returned: got %ld and wanted %ld",
-			     (long)pid, (long)spawn->priv->child_pid);
-		return TRUE;
-	}
-
-	/* disconnect the poll as there will be no more updates */
-	if (spawn->priv->poll_id > 0) {
-		g_source_remove (spawn->priv->poll_id);
-		spawn->priv->poll_id = 0;
-	}
-
-	/* child exited, close resources */
-	close (spawn->priv->stdin_fd);
-	close (spawn->priv->stdout_fd);
-	close (spawn->priv->stderr_fd);
-	spawn->priv->stdin_fd = -1;
-	spawn->priv->stdout_fd = -1;
-	spawn->priv->stderr_fd = -1;
-	spawn->priv->child_pid = -1;
-
-	/* use this to detect SIGKILL and SIGQUIT */
-	if (WIFSIGNALED (status)) {
-		retval = WTERMSIG (status);
-		if (retval == SIGQUIT) {
-			egg_debug ("the child process was terminated by SIGQUIT");
-			spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SIGQUIT;
-		} else if (retval == SIGKILL) {
-			egg_debug ("the child process was terminated by SIGKILL");
-			spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SIGKILL;
-		} else {
-			egg_warning ("the child process was terminated by signal %i", WTERMSIG (status));
-			spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SIGKILL;
-		}
-	} else {
-		/* check we are dead and buried */
-		if (!WIFEXITED (status)) {
-			egg_warning ("the process did not exit, but waitpid() returned!");
-			return TRUE;
-		}
-
-		/* get the exit code */
-		retval = WEXITSTATUS (status);
-		if (retval == 0) {
-			egg_debug ("the child exited with success");
-			if (spawn->priv->exit == PK_SPAWN_EXIT_TYPE_UNKNOWN)
-				spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SUCCESS;
-		} else {
-			egg_warning ("the child exited with return code %i", retval);
-			if (spawn->priv->exit == PK_SPAWN_EXIT_TYPE_UNKNOWN)
-				spawn->priv->exit = PK_SPAWN_EXIT_TYPE_FAILED;
-		}
-	}
-
-	/* officially done, although no signal yet */
-	spawn->priv->finished = TRUE;
-
-	/* if we are trying to kill this process, cancel the SIGKILL */
-	if (spawn->priv->kill_id != 0) {
-		g_source_remove (spawn->priv->kill_id);
-		spawn->priv->kill_id = 0;
-	}
-
-	/* are we doing pk_spawn_exit for a good reason? */
-	if (spawn->priv->is_changing_dispatcher)
-		spawn->priv->exit = PK_SPAWN_EXIT_TYPE_DISPATCHER_CHANGED;
-	else if (spawn->priv->is_sending_exit)
-		spawn->priv->exit = PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT;
-
-	/* don't emit if we just closed an invalid dispatcher */
-	egg_debug ("emitting exit %s", pk_spawn_exit_type_enum_to_string (spawn->priv->exit));
-	g_signal_emit (spawn, signals [SIGNAL_EXIT], 0, spawn->priv->exit);
-
-	return FALSE;
 }
 
 /**
@@ -438,14 +301,13 @@ out:
 /**
  * pk_spawn_exit:
  *
- * Just write "exit" into the open fd and wait for backend to close
+ * Just write "exit" into the open fd and block until the backend is closed
  *
  **/
 gboolean
 pk_spawn_exit (PkSpawn *spawn)
 {
 	gboolean ret;
-	guint count = 0;
 
 	g_return_val_if_fail (PK_IS_SPAWN (spawn), FALSE);
 
@@ -457,6 +319,7 @@ pk_spawn_exit (PkSpawn *spawn)
 
 	/* send command */
 	spawn->priv->is_sending_exit = TRUE;
+	spawn->priv->exit = PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT;
 	ret = pk_spawn_send_stdin (spawn, "exit");
 	if (!ret) {
 		egg_warning ("failed to send exit");
@@ -464,24 +327,144 @@ pk_spawn_exit (PkSpawn *spawn)
 	}
 
 	/* block until the previous script exited */
-	do {
-		egg_debug ("waiting for exit");
-		/* Usleep rather than g_main_loop_run -- we have to block.
-		 * If we run the loop, other idle events can be processed,
-		 * and this includes sending data to a new instance,
-		 * which of course will fail as the 'old' script is exiting */
-		g_usleep (10*1000); /* 10 ms */
-		ret = pk_spawn_check_child (spawn);
-	} while (ret && count++ < 500);
-
-	/* the script exited okay */
-	if (count < 500)
-		ret = TRUE;
-	else
+	g_main_loop_run (spawn->priv->waiting_for_exit);
+	if (spawn->priv->exit != PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT)
 		egg_warning ("failed to exit script");
 out:
 	spawn->priv->is_sending_exit = FALSE;
 	return ret;
+}
+
+/**
+ * pk_spawn_child_watch_cb:
+ **/
+static gboolean
+pk_spawn_child_watch_cb (GPid pid, gint status, PkSpawn *spawn)
+{
+	gint retval;
+
+	/* this shouldn't happen */
+	if (spawn->priv->finished) {
+		egg_warning ("finished twice!");
+		return FALSE;
+	}
+
+	/* child exited, close resources */
+	close (spawn->priv->stdin_fd);
+	spawn->priv->stdin_fd = -1;
+	spawn->priv->child_pid = -1;
+	spawn->priv->watch_child_id = 0;
+	g_io_channel_unref (spawn->priv->io_channel_stdout);
+	g_io_channel_unref (spawn->priv->io_channel_stderr);
+
+	/* use this to detect SIGKILL and SIGQUIT */
+	if (WIFSIGNALED (status)) {
+		retval = WTERMSIG (status);
+		if (retval == SIGQUIT) {
+			egg_debug ("the child process was terminated by SIGQUIT");
+			spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SIGQUIT;
+		} else if (retval == SIGKILL) {
+			egg_debug ("the child process was terminated by SIGKILL");
+			spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SIGKILL;
+		} else {
+			egg_warning ("the child process was terminated by signal %i", WTERMSIG (status));
+			spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SIGKILL;
+		}
+	} else {
+		/* check we are dead and buried */
+		if (!WIFEXITED (status)) {
+			egg_error ("the process did not exit, but waitpid() returned!");
+			return TRUE;
+		}
+
+		/* get the exit code */
+		retval = WEXITSTATUS (status);
+		if (retval == 0) {
+			egg_debug ("the child exited with success");
+			if (spawn->priv->exit == PK_SPAWN_EXIT_TYPE_UNKNOWN)
+				spawn->priv->exit = PK_SPAWN_EXIT_TYPE_SUCCESS;
+		} else {
+			egg_warning ("the child exited with return code %i", retval);
+			if (spawn->priv->exit == PK_SPAWN_EXIT_TYPE_UNKNOWN)
+				spawn->priv->exit = PK_SPAWN_EXIT_TYPE_FAILED;
+		}
+	}
+
+	/* officially done, although no signal yet */
+	spawn->priv->finished = TRUE;
+
+	/* if we are trying to kill this process, cancel the SIGKILL */
+	if (spawn->priv->kill_id != 0) {
+		g_source_remove (spawn->priv->kill_id);
+		spawn->priv->kill_id = 0;
+	}
+
+	/* are we doing pk_spawn_exit for a good reason? */
+	if (spawn->priv->is_changing_dispatcher)
+		spawn->priv->exit = PK_SPAWN_EXIT_TYPE_DISPATCHER_CHANGED;
+	else if (spawn->priv->is_sending_exit)
+		spawn->priv->exit = PK_SPAWN_EXIT_TYPE_DISPATCHER_EXIT;
+
+	/* don't emit if we just closed an invalid dispatcher */
+	egg_debug ("emitting exit %s", pk_spawn_exit_type_enum_to_string (spawn->priv->exit));
+	g_signal_emit (spawn, signals [SIGNAL_EXIT], 0, spawn->priv->exit);
+
+	/* are we waiting internally */
+	if (g_main_loop_is_running (spawn->priv->waiting_for_exit))
+		g_main_loop_quit (spawn->priv->waiting_for_exit);
+
+	return TRUE;
+}
+
+/**
+ * pk_spawn_io_channel_stdout_handler_cb:
+ **/
+static gboolean
+pk_spawn_io_channel_stdout_handler_cb (GIOChannel *source, GIOCondition condition, PkSpawn *spawn)
+{
+	gchar *line = NULL;
+	GError *error = NULL;
+	GIOStatus status;
+
+	/* read data */
+	status = g_io_channel_read_line_string (source, spawn->priv->stdout_buf, NULL, &error);
+	if (status != G_IO_STATUS_NORMAL) {
+		egg_warning ("failed to read: %s", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	/* all usual output goes on standard out, only bad libraries bitch to stderr */
+	pk_spawn_emit_whole_lines (spawn, spawn->priv->stdout_buf);
+out:
+	g_free (line);
+	return TRUE;
+}
+
+/**
+ * pk_spawn_io_channel_stderr_handler_cb:
+ **/
+static gboolean
+pk_spawn_io_channel_stderr_handler_cb (GIOChannel *source, GIOCondition condition, PkSpawn *spawn)
+{
+	gchar *line = NULL;
+	GError *error = NULL;
+	GIOStatus status;
+
+	/* read data */
+	status = g_io_channel_read_line (source, &line, NULL, NULL, &error);
+	if (status != G_IO_STATUS_NORMAL) {
+		egg_warning ("failed to read: %s", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
+	/* emit all lines on standard out in one callback, as it's all probably
+	* related to the error that just happened */
+	g_signal_emit (spawn, signals [SIGNAL_STDERR], 0, line);
+out:
+	g_free (line);
+	return TRUE;
 }
 
 /**
@@ -500,6 +483,8 @@ pk_spawn_argv (PkSpawn *spawn, gchar **argv, gchar **envp)
 	gint nice_value;
 	gchar *command;
 	const gchar *key;
+	gint stderr_fd = -1;
+	gint stdout_fd = -1;
 
 	g_return_val_if_fail (PK_IS_SPAWN (spawn), FALSE);
 	g_return_val_if_fail (argv != NULL, FALSE);
@@ -549,11 +534,6 @@ pk_spawn_argv (PkSpawn *spawn, gchar **argv, gchar **envp)
 		ret = pk_spawn_exit (spawn);
 		if (!ret) {
 			egg_warning ("failed to exit previous instance");
-			/* remove poll, as we can't reply on pk_spawn_check_child() */
-			if (spawn->priv->poll_id != 0) {
-				g_source_remove (spawn->priv->poll_id);
-				spawn->priv->poll_id = 0;
-			}
 		}
 		spawn->priv->is_changing_dispatcher = FALSE;
 	}
@@ -565,9 +545,20 @@ pk_spawn_argv (PkSpawn *spawn, gchar **argv, gchar **envp)
 				 G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH,
 				 NULL, NULL, &spawn->priv->child_pid,
 				 &spawn->priv->stdin_fd,
-				 &spawn->priv->stdout_fd,
-				 &spawn->priv->stderr_fd,
+				 &stdout_fd,
+				 &stderr_fd,
 				 NULL);
+	if (!ret) {
+		egg_warning ("failed to spawn '%s'", argv[0]);
+		return FALSE;
+	}
+
+	/* watch this process */
+	spawn->priv->io_channel_stdout = g_io_channel_unix_new (stdout_fd);
+	spawn->priv->io_channel_stderr = g_io_channel_unix_new (stderr_fd);
+	g_io_add_watch (spawn->priv->io_channel_stdout, G_IO_IN, (GIOFunc) pk_spawn_io_channel_stdout_handler_cb, spawn);
+	g_io_add_watch (spawn->priv->io_channel_stderr, G_IO_IN, (GIOFunc) pk_spawn_io_channel_stderr_handler_cb, spawn);
+	spawn->priv->watch_child_id = g_child_watch_add (spawn->priv->child_pid, (GChildWatchFunc) pk_spawn_child_watch_cb, spawn);
 
 	/* get the nice value and ensure we are in the valid range */
 	key = "BackendSpawnNiceValue";
@@ -594,12 +585,6 @@ pk_spawn_argv (PkSpawn *spawn, gchar **argv, gchar **envp)
 		pk_ioprio_set_idle (spawn->priv->child_pid);
 	}
 
-	/* we failed to invoke the helper */
-	if (!ret) {
-		egg_warning ("failed to spawn '%s'", argv[0]);
-		return FALSE;
-	}
-
 	/* save this so we can check the dispatcher name */
 	g_free (spawn->priv->last_argv0);
 	spawn->priv->last_argv0 = g_strdup (argv[0]);
@@ -607,22 +592,6 @@ pk_spawn_argv (PkSpawn *spawn, gchar **argv, gchar **envp)
 	/* save this in case the proxy or locale changes */
 	g_strfreev (spawn->priv->last_envp);
 	spawn->priv->last_envp = g_strdupv (envp);
-
-	/* install an idle handler to check if the child returnd successfully. */
-	fcntl (spawn->priv->stdout_fd, F_SETFL, O_NONBLOCK);
-	fcntl (spawn->priv->stderr_fd, F_SETFL, O_NONBLOCK);
-
-	/* sanity check */
-	if (spawn->priv->poll_id != 0) {
-		egg_warning ("trying to set timeout when already set");
-		g_source_remove (spawn->priv->poll_id);
-	}
-
-	/* poll quickly */
-	spawn->priv->poll_id = g_timeout_add (PK_SPAWN_POLL_DELAY, (GSourceFunc) pk_spawn_check_child, spawn);
-#if GLIB_CHECK_VERSION(2,25,8)
-	g_source_set_name_by_id (spawn->priv->poll_id, "[PkSpawn] main poll");
-#endif
 
 	return TRUE;
 }
@@ -733,11 +702,11 @@ pk_spawn_init (PkSpawn *spawn)
 	spawn->priv = PK_SPAWN_GET_PRIVATE (spawn);
 
 	spawn->priv->child_pid = -1;
-	spawn->priv->stdout_fd = -1;
-	spawn->priv->stderr_fd = -1;
+	spawn->priv->io_channel_stdout = NULL;
+	spawn->priv->io_channel_stdout = NULL;
 	spawn->priv->stdin_fd = -1;
-	spawn->priv->poll_id = 0;
 	spawn->priv->kill_id = 0;
+	spawn->priv->watch_child_id = 0;
 	spawn->priv->finished = FALSE;
 	spawn->priv->is_sending_exit = FALSE;
 	spawn->priv->is_changing_dispatcher = FALSE;
@@ -750,6 +719,7 @@ pk_spawn_init (PkSpawn *spawn)
 	spawn->priv->stdout_buf = g_string_new ("");
 	spawn->priv->stderr_buf = g_string_new ("");
 	spawn->priv->conf = pk_conf_new ();
+	spawn->priv->waiting_for_exit = g_main_loop_new (NULL, FALSE);
 }
 
 /**
@@ -768,12 +738,6 @@ pk_spawn_finalize (GObject *object)
 
 	g_return_if_fail (spawn->priv != NULL);
 
-	/* disconnect the poll in case we were cancelled before completion */
-	if (spawn->priv->poll_id != 0) {
-		g_source_remove (spawn->priv->poll_id);
-		spawn->priv->poll_id = 0;
-	}
-
 	/* disconnect the SIGKILL check */
 	if (spawn->priv->kill_id != 0) {
 		g_source_remove (spawn->priv->kill_id);
@@ -789,12 +753,16 @@ pk_spawn_finalize (GObject *object)
 			g_source_remove (spawn->priv->kill_id);
 	}
 
+	if (spawn->priv->watch_child_id > 0)
+		g_source_remove (spawn->priv->watch_child_id);
+
 	/* free the buffers */
 	g_string_free (spawn->priv->stdout_buf, TRUE);
 	g_string_free (spawn->priv->stderr_buf, TRUE);
 	g_free (spawn->priv->last_argv0);
 	g_strfreev (spawn->priv->last_envp);
 	g_object_unref (spawn->priv->conf);
+	g_main_loop_unref (spawn->priv->waiting_for_exit);
 
 	G_OBJECT_CLASS (pk_spawn_parent_class)->finalize (object);
 }
