@@ -97,6 +97,7 @@ struct PkTransactionPrivate
 	gboolean		 emit_signature_required;
 	gboolean		 emit_media_change_required;
 	gboolean		 caller_active;
+	gboolean		 run_exclusive;
 	PkHintEnum		 background;
 	PkHintEnum		 interactive;
 	gchar			*locale;
@@ -876,7 +877,7 @@ pk_transaction_set_exclusive (PkTransaction *transaction, gboolean locked)
 		return;
 	}
 
-	transaction->priv->run_exclusive = locked;	
+	transaction->priv->run_exclusive = locked;
 }
 
 /**
@@ -900,7 +901,7 @@ pk_transaction_is_exclusive (PkTransaction *transaction)
 
 	return ret;
 }
-               
+
 /**
  * pk_transaction_get_state:
  **/
@@ -1892,7 +1893,7 @@ pk_transaction_set_running (PkTransaction *transaction)
 
 	/* set that we're running now */
 	pk_transaction_set_state (transaction, PK_TRANSACTION_STATE_RUNNING);
-	
+
 	/* prepare for use; the transaction list ensures this is safe */
 	pk_backend_reset (priv->backend);
 
