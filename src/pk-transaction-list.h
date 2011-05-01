@@ -72,6 +72,8 @@ gchar		**pk_transaction_list_get_array		(PkTransactionList	*tlist)
 							 G_GNUC_WARN_UNUSED_RESULT;
 gchar		*pk_transaction_list_get_state		(PkTransactionList	*tlist)
 							 G_GNUC_WARN_UNUSED_RESULT;
+void		 pk_transaction_set_exclusive 		(PkTransaction *transaction,
+							 gboolean locked);
 guint		 pk_transaction_list_get_size		(PkTransactionList	*tlist);
 PkTransaction	*pk_transaction_list_get_transaction	(PkTransactionList	*tlist,
 							 const gchar		*tid);

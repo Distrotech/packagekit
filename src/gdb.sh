@@ -19,6 +19,8 @@ else
     BACKEND=$1
 fi
 
+killall kpackagekitsmarticon
+killall packagekitd
 export G_DEBUG=fatal_criticals
 sudo touch /etc/PackageKit/PackageKit.conf
 sudo G_DEBUG=fatal_criticals gdb --args .libs/lt-packagekitd --verbose --backend=$BACKEND --disable-timer

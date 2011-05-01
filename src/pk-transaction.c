@@ -551,8 +551,7 @@ pk_transaction_files_cb (PkBackend *backend, PkFiles *item, PkTransaction *trans
 		      NULL);
 
 	/* ensure the files have the correct prefix */
-	if (transaction->priv->role == PK_ROLE_ENUM_DOWNLOAD_PACKAGES &&
-	    transaction->priv->cached_directory != NULL) {
+	if (transaction->priv->role == PK_ROLE_ENUM_DOWNLOAD_PACKAGES) {
 		for (i=0; files[i] != NULL; i++) {
 			if (!g_str_has_prefix (files[i], transaction->priv->cached_directory)) {
 				pk_backend_message (transaction->priv->backend, PK_MESSAGE_ENUM_BACKEND_ERROR,
@@ -843,7 +842,6 @@ pk_transaction_set_state (PkTransaction *transaction, PkTransactionState state)
 						      PK_BACKEND_PERCENTAGE_INVALID,
 						      PK_BACKEND_PERCENTAGE_INVALID,
 						      0, 0);
-
 	} else if (state == PK_TRANSACTION_STATE_READY) {
 		pk_transaction_status_changed_emit (transaction,
 						    PK_STATUS_ENUM_WAIT);
@@ -851,17 +849,58 @@ pk_transaction_set_state (PkTransaction *transaction, PkTransactionState state)
 						      PK_BACKEND_PERCENTAGE_INVALID,
 						      PK_BACKEND_PERCENTAGE_INVALID,
 						      0, 0);
-	}
-
-	/* we have no actions to perform here, so go straight to running */
-	if (state == PK_TRANSACTION_STATE_COMMITTED) {
-		/* TODO: do some things before we change states */
+	} else if (state == PK_TRANSACTION_STATE_COMMITTED) {
+		/* nothing more to do, transaction is ready now */
+		g_debug ("committed transaction set to running.");
 		ret = pk_transaction_set_state (transaction, PK_TRANSACTION_STATE_READY);
 	}
 out:
 	return ret;
 }
 
+/**
+ * pk_transaction_set_exclusive:
+ *
+ * Set if the transaction should run exclusive
+ */
+void
+pk_transaction_set_exclusive (PkTransaction *transaction, gboolean locked)
+{
+	g_return_if_fail (PK_IS_TRANSACTION (transaction));
+
+	if ((transaction->priv->state > PK_TRANSACTION_STATE_READY) &&
+	    (locked == TRUE) &&
+	    (transaction->priv->run_exclusive == FALSE)) {
+		g_warning ("transaction is already %s, it can not ask to run exclusive at this stage!",
+		           pk_transaction_state_to_string (transaction->priv->state));
+		return;
+	}
+
+	transaction->priv->run_exclusive = locked;	
+}
+
+/**
+ * pk_transaction_is_exclusive:
+ *
+ * Check whether the backend needs to run exclusive or not.
+ * TODO: Receive an array of running other transaction types
+ *
+ * Return value: True if the current transaction to run exclusive
+ */
+gboolean
+pk_transaction_is_exclusive (PkTransaction *transaction)
+{
+	gboolean ret = TRUE;
+	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), TRUE);
+
+	ret = transaction->priv->run_exclusive;
+
+	/* TODO: Extend API to make backend decide if the transaction needs to be run exclusively by passing an
+	 *       array of running other transaction types to it */
+
+	return ret;
+}
+               
 /**
  * pk_transaction_get_state:
  **/
@@ -900,19 +939,21 @@ pk_transaction_finished_cb (PkBackend *backend, PkExitEnum exit_enum, PkTransact
 	}
 
 	/* disconnect these straight away, as the PkTransaction object takes time to timeout */
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_details);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_error_code);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_files);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_distro_upgrade);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_finished);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_package);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_repo_detail);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_repo_signature_required);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_eula_required);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_media_change_required);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_update_detail);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_category);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_speed);
+	if (pk_backend_get_is_finished (transaction->priv->backend)) {
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_details);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_error_code);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_files);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_distro_upgrade);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_finished);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_package);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_repo_detail);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_repo_signature_required);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_eula_required);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_media_change_required);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_update_detail);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_category);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_speed);
+	}
 
 	/* check for session restarts */
 	if (exit_enum == PK_EXIT_ENUM_SUCCESS &&
@@ -1013,11 +1054,13 @@ pk_transaction_finished_cb (PkBackend *backend, PkExitEnum exit_enum, PkTransact
 	}
 
 	/* signals we are not allowed to send from the second phase post transaction */
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_allow_cancel);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_message);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_status_changed);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_progress_changed);
-	g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_require_restart);
+	if (pk_backend_get_is_finished (transaction->priv->backend)) {
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_allow_cancel);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_message);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_status_changed);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_progress_changed);
+		g_signal_handler_disconnect (transaction->priv->backend, transaction->priv->signal_require_restart);
+	}
 
 	/* do some optional extra actions when we've finished refreshing the cache */
 	if (exit_enum == PK_EXIT_ENUM_SUCCESS &&
@@ -1838,7 +1881,7 @@ pk_transaction_speed_cb (GObject *object, GParamSpec *pspec, PkTransaction *tran
 G_GNUC_WARN_UNUSED_RESULT static gboolean
 pk_transaction_set_running (PkTransaction *transaction)
 {
-	gboolean ret;
+	gboolean ret = TRUE;
 	guint i;
 	GError *error = NULL;
 	PkBitfield filters;
@@ -1847,6 +1890,9 @@ pk_transaction_set_running (PkTransaction *transaction)
 	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), FALSE);
 	g_return_val_if_fail (priv->tid != NULL, FALSE);
 
+	/* set that we're running now */
+	pk_transaction_set_state (transaction, PK_TRANSACTION_STATE_RUNNING);
+	
 	/* prepare for use; the transaction list ensures this is safe */
 	pk_backend_reset (priv->backend);
 
@@ -2074,9 +2120,16 @@ out:
 gboolean
 pk_transaction_run (PkTransaction *transaction)
 {
-	gboolean ret;
+	gboolean ret = FALSE;
 	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), FALSE);
 	g_return_val_if_fail (transaction->priv->tid != NULL, FALSE);
+
+	if (transaction->priv->state < PK_TRANSACTION_STATE_READY) {
+		g_warning ("Transaction was not 'ready' before running!");
+	}
+
+	pk_transaction_set_state (transaction, PK_TRANSACTION_STATE_RUNNING);
+	g_debug ("Transaction set to #running#");
 
 	/* do the pre-transaction.d scripts */
 	pk_transaction_process_scripts (transaction, "pre-transaction.d");
@@ -2177,6 +2230,7 @@ pk_transaction_commit (PkTransaction *transaction)
 	/* commit, so it appears in the JobList */
 	ret = pk_transaction_list_commit (priv->transaction_list,
 					  priv->tid);
+
 	if (!ret) {
 		pk_transaction_release_tid (transaction);
 		g_warning ("failed to commit (job not run?)");
@@ -5899,6 +5953,7 @@ pk_transaction_init (PkTransaction *transaction)
 #ifdef USE_SECURITY_POLKIT
 	transaction->priv->subject = NULL;
 #endif
+	transaction->priv->run_exclusive = TRUE;
 	transaction->priv->cmdline = NULL;
 	transaction->priv->uid = PK_TRANSACTION_UID_INVALID;
 	transaction->priv->role = PK_ROLE_ENUM_UNKNOWN;

@@ -103,6 +103,7 @@ PkTransactionState pk_transaction_get_state			(PkTransaction	*transaction);
 gboolean	 pk_transaction_set_state			(PkTransaction	*transaction,
 								 PkTransactionState state);
 const gchar	*pk_transaction_state_to_string			(PkTransactionState state);
+gboolean	 pk_transaction_is_exclusive			(PkTransaction *transaction);
 
 /* set and retrieve tid */
 const gchar	*pk_transaction_get_tid				(PkTransaction	*transaction);
