@@ -364,31 +364,6 @@ pk_transaction_list_run_item (PkTransactionList *tlist, PkTransactionItem *item)
 }
 
 /**
- * pk_transaction_list_exclusive_running:
- **/
-static gboolean
-pk_transaction_list_exclusive_running (PkTransactionList *tlist)
-{
-	PkTransactionItem *item = NULL;
-	GPtrArray *array;
-	guint i;
-
-	array = tlist->priv->array;
-
-	/* first check if we have any running locked (exclusive) transaction */
-	for (i=0; i<array->len; i++) {
-		item = (PkTransactionItem *) g_ptr_array_index (array, i);
-
-		/* check if a transaction is running in exclusive mode and set if we're locked */
-		if ((pk_transaction_get_state (item->transaction) == PK_TRANSACTION_STATE_RUNNING) &&
-			(pk_transaction_is_exclusive (item->transaction)))
-			return TRUE;
-	}
-
-	return FALSE;
-}
-
-/**
  * pk_transaction_list_get_next_item:
  **/
 static PkTransactionItem *
@@ -403,7 +378,7 @@ pk_transaction_list_get_next_item (PkTransactionList *tlist)
 	array = tlist->priv->array;
 
 	/* check for running exclusive transaction */
-	exclusive_running = pk_transaction_list_exclusive_running (tlist);
+	exclusive_running = pk_transaction_list_get_locked (tlist);
 
 	/* first try the waiting non-background transactions */
 	for (i=0; i<array->len; i++) {
@@ -659,27 +634,67 @@ out:
 }
 
 /**
- * pk_transaction_list_get_active_transaction:
+ * pk_transaction_list_get_active_transactions:
  *
- * TODO: No longer valid for parallel transactions!
  **/
-static PkTransactionItem *
-pk_transaction_list_get_active_transaction (PkTransactionList *tlist)
+static GPtrArray *
+pk_transaction_list_get_active_transactions (PkTransactionList *tlist)
 {
 	guint i;
 	GPtrArray *array;
+	GPtrArray *res;
 	PkTransactionItem *item;
 
 	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), NULL);
+
+	/* create array to store the results */
+	res = g_ptr_array_new ();
 
 	/* find the runner with the transaction ID */
 	array = tlist->priv->array;
 	for (i=0; i<array->len; i++) {
 		item = (PkTransactionItem *) g_ptr_array_index (array, i);
 		if (pk_transaction_get_state (item->transaction) == PK_TRANSACTION_STATE_RUNNING)
-			return item;
+			g_ptr_array_add (res, item);
 	}
-	return NULL;
+
+	return res;
+}
+
+/**
+ * pk_transaction_list_get_locked:
+ *
+ * Return value: %TRUE if any of the transactions in progress are
+ * locking a database or resource and cannot be cancelled.
+ **/
+gboolean
+pk_transaction_list_get_locked (PkTransactionList *tlist)
+{
+	PkTransactionItem *item = NULL;
+	GPtrArray *array;
+	gboolean ret = FALSE;
+	guint i;
+
+	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), FALSE);
+
+	/* anything running? */
+	array = pk_transaction_list_get_active_transactions (tlist);
+	if (array->len == 0)
+		goto out;
+
+	/* check if we have any running locked (exclusive) transaction */
+	for (i=0; i<array->len; i++) {
+		item = (PkTransactionItem *) g_ptr_array_index (array, i);
+
+		/* check if a transaction is running in exclusive mode and set if we're locked */
+		if (pk_transaction_is_exclusive (item->transaction)) {
+			ret = TRUE;
+			goto out;
+		}
+	}
+out:
+	g_ptr_array_free (array, TRUE);
+	return ret;
 }
 
 /**
@@ -832,30 +847,6 @@ pk_transaction_list_get_size (PkTransactionList *tlist)
 {
 	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), 0);
 	return tlist->priv->array->len;
-}
-
-/**
- * pk_transaction_list_get_locked:
- *
- * Return value: %TRUE if any of the transactions in progress are
- * locking a database or resource and cannot be cancelled.
- **/
-gboolean
-pk_transaction_list_get_locked (PkTransactionList *tlist)
-{
-	PkBackend *backend;
-	PkTransactionItem *item;
-
-	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), FALSE);
-
-	/* anything running? : TODO, multiplex for parallel transactions */
-	item = pk_transaction_list_get_active_transaction (tlist);
-	if (item == NULL)
-		return FALSE;
-	backend = pk_transaction_get_backend (item->transaction);
-	if (item == NULL)
-		return FALSE;
-	return pk_backend_get_locked (backend);
 }
 
 /**
