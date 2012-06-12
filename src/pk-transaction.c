@@ -594,7 +594,8 @@ pk_transaction_error_code_cb (PkBackend *backend,
 	/* emit, if it is not the internally-handled LOCK_REQUIRED status */
 	if (code == PK_ERROR_ENUM_LOCK_REQUIRED) {
 		/* we are an exclusive transaction now! */
-		pk_transaction_locked_changed_cb (backend, TRUE, transaction);
+		g_debug ("changing transaction to exclusive mode");
+		transaction->priv->exclusive = TRUE;
 	} else {
 		pk_transaction_error_code_emit (transaction, code, details);
 	}
@@ -5631,6 +5632,7 @@ pk_transaction_reset_after_lock_error (PkTransaction *transaction)
 	priv->results = pk_results_new ();
 
 	/* reset transaction state */
+	/* first set state manually, otherwise set_state will refuse to switch to an earlier stage */
 	priv->state = PK_TRANSACTION_STATE_READY;
 	pk_transaction_set_state (transaction, PK_TRANSACTION_STATE_READY);
 }

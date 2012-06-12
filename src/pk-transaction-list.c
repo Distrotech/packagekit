@@ -437,42 +437,38 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 			pk_backend_error_code (backend, PK_ERROR_ENUM_CANNOT_GET_LOCK, _("Unable to lock package database! There is probably another application using it already."));
 
 		} else {
-			goto out;
+			/* try to run the next transaction, if possible */
+			item = pk_transaction_list_get_next_item (tlist);
+			if (item != NULL) {
+				g_debug ("running %s as previous one finished", item->tid);
+				pk_transaction_list_run_item (tlist, item);
+			}
 		}
+	} else {
+		/* we've been 'used' */
+		if (item->commit_id != 0) {
+			g_source_remove (item->commit_id);
+			item->commit_id = 0;
+		}
+
+		g_debug ("transaction %s completed, marking finished", item->tid);
+		ret = pk_transaction_set_state (item->transaction, PK_TRANSACTION_STATE_FINISHED);
+		if (!ret) {
+			g_warning ("transaction could not be set finished!");
+			return;
+		}
+
+		/* give the client a few seconds to still query the runner */
+		timeout = pk_conf_get_int (tlist->priv->conf, "TransactionKeepFinishedTimeout");
+		item->remove_id = g_timeout_add_seconds (timeout, (GSourceFunc) pk_transaction_list_remove_item_cb, item);
+		g_source_set_name_by_id (item->remove_id, "[PkTransactionList] remove");
 	}
 
-	/* we've been 'used' */
-	if (item->commit_id != 0) {
-		g_source_remove (item->commit_id);
-		item->commit_id = 0;
-	}
-
-	g_debug ("transaction %s completed, marking finished", item->tid);
-	ret = pk_transaction_set_state (item->transaction, PK_TRANSACTION_STATE_FINISHED);
-	if (!ret) {
-		g_warning ("transaction could not be set finished!");
-		return;
-	}
-
-	/* give the client a few seconds to still query the runner */
-	timeout = pk_conf_get_int (tlist->priv->conf, "TransactionKeepFinishedTimeout");
-	item->remove_id = g_timeout_add_seconds (timeout, (GSourceFunc) pk_transaction_list_remove_item_cb, item);
-	g_source_set_name_by_id (item->remove_id, "[PkTransactionList] remove");
-
-out:
-	if (error != NULL)
-		g_object_unref (error);
+	g_object_unref (error);
 
 	/* we have changed what is running */
 	g_debug ("emmitting ::changed");
 	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
-
-	/* try to run the next transaction, if possible */
-	item = pk_transaction_list_get_next_item (tlist);
-	if (item != NULL) {
-		g_debug ("running %s as previous one finished", item->tid);
-		pk_transaction_list_run_item (tlist, item);
-	}
 }
 
 /**
@@ -714,7 +710,7 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 	pk_transaction_list_run_item (tlist, item);
 	goto out;
 
-	// TODO: Think about how to handle background transactions
+	/* TODO: Think about how to handle background transactions */
 
 	/* is the current running transaction backtround, and this new
 	 * transaction foreground? */
