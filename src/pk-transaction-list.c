@@ -310,6 +310,31 @@ pk_transaction_list_run_item (PkTransactionList *tlist, PkTransactionItem *item)
 }
 
 /**
+ * pk_transaction_list_exclusive_running:
+ **/
+static gboolean
+pk_transaction_list_exclusive_running (PkTransactionList *tlist)
+{
+	PkTransactionItem *item = NULL;
+	GPtrArray *array;
+	guint i;
+
+	array = tlist->priv->array;
+
+	/* first check if we have any running locked (exclusive) transaction */
+	for (i=0; i<array->len; i++) {
+		item = (PkTransactionItem *) g_ptr_array_index (array, i);
+
+		/* check if a transaction is running in exclusive mode and set if we're locked */
+		if ((pk_transaction_get_state (item->transaction) == PK_TRANSACTION_STATE_RUNNING) &&
+			(pk_transaction_is_exclusive (item->transaction)))
+			return TRUE;
+	}
+
+	return FALSE;
+}
+
+/**
  * pk_transaction_list_get_next_item:
  **/
 static PkTransactionItem *
@@ -318,22 +343,44 @@ pk_transaction_list_get_next_item (PkTransactionList *tlist)
 	PkTransactionItem *item = NULL;
 	GPtrArray *array;
 	guint i;
+	PkTransactionState state;
+	gboolean exclusive_running;
 
 	array = tlist->priv->array;
+
+	/* check for running exclusive transaction */
+	exclusive_running = pk_transaction_list_exclusive_running (tlist);
 
 	/* first try the waiting non-background transactions */
 	for (i=0; i<array->len; i++) {
 		item = (PkTransactionItem *) g_ptr_array_index (array, i);
-		if (pk_transaction_get_state (item->transaction) == PK_TRANSACTION_STATE_READY &&
-		    !item->background)
-			goto out;
+		state = pk_transaction_get_state (item->transaction);
+
+		if ((state == PK_TRANSACTION_STATE_READY) && (!item->background)) {
+			/* check if we can run the transaction now or if we need to wait for lock release */
+			if (pk_transaction_is_exclusive (item->transaction)) {
+				if (!exclusive_running)
+					goto out;
+			} else {
+				goto out;
+			}
+		}
 	}
 
 	/* then try the other waiting transactions (background tasks) */
 	for (i=0; i<array->len; i++) {
 		item = (PkTransactionItem *) g_ptr_array_index (array, i);
-		if (pk_transaction_get_state (item->transaction) == PK_TRANSACTION_STATE_READY)
-			goto out;
+		state = pk_transaction_get_state (item->transaction);
+
+		if (state == PK_TRANSACTION_STATE_READY) {
+			/* check if we can run the transaction now or if we need to wait for lock release */
+			if (pk_transaction_is_exclusive (item->transaction)) {
+				if (!exclusive_running)
+					goto out;
+			} else {
+				goto out;
+			}
+		}
 	}
 
 	/* nothing to run */
@@ -527,6 +574,7 @@ out:
 	return ret;
 }
 
+#if 0
 /**
  * pk_transaction_list_get_active_transaction:
  **/
@@ -548,6 +596,7 @@ pk_transaction_list_get_active_transaction (PkTransactionList *tlist)
 	}
 	return NULL;
 }
+#endif
 
 /**
  * pk_transaction_list_cancel_background:
@@ -631,13 +680,12 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 	g_debug ("emitting ::changed");
 	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
 
-	/* do the transaction now if we have no other in progress */
-	item_active = pk_transaction_list_get_active_transaction (tlist);
-	if (item_active == NULL) {
-		g_debug ("running %s as no others in progress", item->tid);
-		pk_transaction_list_run_item (tlist, item);
-		goto out;
-	}
+	/* do the transaction now */
+	g_debug ("running %s", item->tid);
+	pk_transaction_list_run_item (tlist, item);
+	goto out;
+
+	// TODO: Think about how to handle background transactions
 
 	/* is the current running transaction backtround, and this new
 	 * transaction foreground? */
