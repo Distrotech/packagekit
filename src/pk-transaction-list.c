@@ -19,6 +19,31 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+/**
+ * Transaction Commit Logic:
+ *
+ * State = COMMIT
+ * Transaction.Run()
+ * WHEN transaction finished:
+ * 	IF error = LOCK_REQUIRED
+ * 		IF number_of_tries > 4
+ * 			Fail the transaction with CANNOT_GET_LOCK
+ * 			Remove the transaction from the FIFO queue
+ * 		ELSE
+ * 			Reset transaction
+ * 			Transaction.Exclusive = TRUE
+ * 			number_of_tries++
+ * 			Leave transaction in the FIFO queue
+ *	ELSE
+ * 		State = Finished
+ * 		IF Transaction.Exclusive
+ * 			Take the first PK_TRANSACTION_STATE_READY transaction which has Transaction.Exclusive == TRUE
+ * 			from the list and run it. If there's none, just do nothing
+ * 		ELSE
+ * 			Do nothing
+ * 		Transaction.Destroy()
+**/
+
 #include "config.h"
 
 #include <stdlib.h>
@@ -56,6 +81,7 @@ struct PkTransactionListPrivate
 	guint			 unwedge2_id;
 	PkConf			*conf;
 	GPtrArray		*plugins;
+	PkBackend		*backend;
 };
 
 typedef struct {
@@ -284,14 +310,41 @@ static gboolean
 pk_transaction_list_run_idle_cb (PkTransactionItem *item)
 {
 	gboolean ret;
+	GError *error = NULL;
+	PkBackend *backend = NULL;
+	PkRoleEnum role;
 
 	g_debug ("actually running %s", item->tid);
+
+	/* load a new backend if the master is busy */
+	ret = pk_backend_get_is_finished (item->list->priv->backend);
+	role = pk_backend_get_role (item->list->priv->backend);
+	if (ret || role == PK_ROLE_ENUM_UNKNOWN) {
+		pk_transaction_set_backend (item->transaction,
+					    item->list->priv->backend);
+	} else {
+		g_warning ("Using a new backend instance which is "
+			   "not supported at this stage or well tested");
+		backend = pk_backend_new ();
+		ret = pk_backend_load (backend, &error);
+		if (!ret) {
+			g_critical ("Failed to load second instance of PkBackend: %s",
+				    error->message);
+			g_error_free (error);
+			goto out;
+		}
+		pk_transaction_set_backend (item->transaction, backend);
+	}
+
+	/* run the transaction */
 	ret = pk_transaction_run (item->transaction);
 	if (!ret)
 		g_error ("failed to run transaction (fatal)");
-
+out:
 	/* never try to idle add this again */
 	item->idle_id = 0;
+	if (backend != NULL)
+		g_object_unref (backend);
 	return FALSE;
 }
 
@@ -567,6 +620,12 @@ pk_transaction_list_create (PkTransactionList *tlist,
 		g_set_error (error, 1, 0, "failed to set sender: %s", tid);
 		goto out;
 	}
+
+	/* set the master PkBackend really early (i.e. before
+	 * pk_transaction_run is called) as transactions may want to check
+	 * to see if roles are possible before accepting actions */
+	pk_transaction_set_backend (item->transaction,
+				    tlist->priv->backend);
 
 	/* get the uid for the transaction */
 	item->uid = pk_transaction_get_uid (item->transaction);
@@ -987,7 +1046,26 @@ void
 pk_transaction_list_set_plugins (PkTransactionList *tlist,
 				 GPtrArray *plugins)
 {
+	g_return_if_fail (PK_IS_TRANSACTION_LIST (tlist));
 	tlist->priv->plugins = g_ptr_array_ref (plugins);
+}
+
+/**
+ * pk_transaction_list_set_backend:
+ *
+ * Note: this is the master PkBackend that is used when the transaction
+ * list is processing one transaction at a time.
+ * When parallel transactions are used, then another PkBackend will
+ * be instantiated if this PkBackend is busy.
+ */
+void
+pk_transaction_list_set_backend (PkTransactionList *tlist,
+				 PkBackend *backend)
+{
+	g_return_if_fail (PK_IS_TRANSACTION_LIST (tlist));
+	g_return_if_fail (PK_IS_BACKEND (backend));
+	g_return_if_fail (tlist->priv->backend == NULL);
+	tlist->priv->backend = g_object_ref (backend);
 }
 
 /**
@@ -1051,6 +1129,8 @@ pk_transaction_list_finalize (GObject *object)
 	g_object_unref (tlist->priv->conf);
 	if (tlist->priv->plugins != NULL)
 		g_ptr_array_unref (tlist->priv->plugins);
+	if (tlist->priv->backend != NULL)
+		g_object_unref (tlist->priv->backend);
 
 	G_OBJECT_CLASS (pk_transaction_list_parent_class)->finalize (object);
 }

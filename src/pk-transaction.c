@@ -974,7 +974,9 @@ pk_transaction_plugin_phase (PkTransaction *transaction,
 			 function,
 			 g_module_name (plugin->module));
 		pk_transaction_set_signals (transaction, backend_signals);
+		plugin->backend = transaction->priv->backend;
 		plugin_func (plugin, transaction);
+		plugin->backend = NULL;
 	}
 out:
 	/* set this to a know state in case the plugin misbehaves */
@@ -996,6 +998,28 @@ pk_transaction_get_conf (PkTransaction *transaction)
 }
 
 /**
+ * pk_transaction_setup_mime_types:
+ **/
+static void
+pk_transaction_setup_mime_types (PkTransaction *transaction)
+{
+	guint i;
+	gchar *mime_types_str;
+	gchar **mime_types;
+
+	/* get list of mime types supported by backends */
+	mime_types_str = pk_backend_get_mime_types (transaction->priv->backend);
+	mime_types = g_strsplit (mime_types_str, ";", -1);
+	for (i=0; mime_types[i] != NULL; i++) {
+		g_ptr_array_add (transaction->priv->supported_content_types,
+				 g_strdup (mime_types[i]));
+	}
+
+	g_free (mime_types_str);
+	g_strfreev (mime_types);
+}
+
+/**
  * pk_transaction_get_backend:
  *
  * Returns: (transfer none): PkBackend for this transaction
@@ -1005,6 +1029,28 @@ pk_transaction_get_backend (PkTransaction *transaction)
 {
 	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), NULL);
 	return transaction->priv->backend;
+}
+
+/**
+ * pk_transaction_set_backend:
+ **/
+void
+pk_transaction_set_backend (PkTransaction *transaction,
+			    PkBackend *backend)
+{
+	/* save a reference */
+	if (transaction->priv->backend != NULL)
+		g_object_unref (transaction->priv->backend);
+	transaction->priv->backend = g_object_ref (backend);
+
+	/* setup supported mime types */
+	pk_transaction_setup_mime_types (transaction);
+
+	/* connect backend locked-changed signal */
+	transaction->priv->signal_locked_changed =
+		g_signal_connect (transaction->priv->backend, "locked-changed",
+				  G_CALLBACK (pk_transaction_locked_changed_cb),
+				  transaction);
 }
 
 /**
@@ -2229,6 +2275,7 @@ pk_transaction_run (PkTransaction *transaction)
 
 	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), FALSE);
 	g_return_val_if_fail (priv->tid != NULL, FALSE);
+	g_return_val_if_fail (transaction->priv->backend != NULL, FALSE);
 
 	/* prepare for use; the transaction list ensures this is safe */
 	pk_backend_reset (priv->backend);
@@ -5597,28 +5644,6 @@ pk_transaction_add_supported_content_type (PkTransaction *transaction,
 }
 
 /**
- * pk_transaction_setup_mime_types:
- **/
-static void
-pk_transaction_setup_mime_types (PkTransaction *transaction)
-{
-	guint i;
-	gchar *mime_types_str;
-	gchar **mime_types;
-
-	/* get list of mime types supported by backends */
-	mime_types_str = pk_backend_get_mime_types (transaction->priv->backend);
-	mime_types = g_strsplit (mime_types_str, ";", -1);
-	for (i=0; mime_types[i] != NULL; i++) {
-		g_ptr_array_add (transaction->priv->supported_content_types,
-				 g_strdup (mime_types[i]));
-	}
-
-	g_free (mime_types_str);
-	g_strfreev (mime_types);
-}
-
-/**
  * pk_transaction_reset_after_lock_error:
  **/
 void
@@ -5676,7 +5701,6 @@ pk_transaction_init (PkTransaction *transaction)
 	transaction->priv->percentage = PK_BACKEND_PERCENTAGE_INVALID;
 	transaction->priv->background = PK_HINT_ENUM_UNSET;
 	transaction->priv->state = PK_TRANSACTION_STATE_UNKNOWN;
-	transaction->priv->backend = pk_backend_new ();
 	transaction->priv->cache = pk_cache_new ();
 	transaction->priv->conf = pk_conf_new ();
 	transaction->priv->notify = pk_notify_new ();
@@ -5707,13 +5731,6 @@ pk_transaction_init (PkTransaction *transaction)
 			 error->message);
 		g_error_free (error);
 	}
-
-	/* connect backend locked-changed signal */
-	transaction->priv->signal_locked_changed = g_signal_connect (transaction->priv->backend, "locked-changed",
-					G_CALLBACK (pk_transaction_locked_changed_cb), transaction);
-
-	/* setup supported mime types */
-	pk_transaction_setup_mime_types (transaction);
 }
 
 /**
