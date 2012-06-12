@@ -30,19 +30,19 @@ static PkBackendSpawn *spawn;
 /**
  * pk_backend_get_description:
  */
-gchar *
+const gchar *
 pk_backend_get_description (PkBackend *backend)
 {
-	return g_strdup ("Conary");
+	return "Conary";
 }
 
 /**
  * pk_backend_get_author:
  */
-gchar *
+const gchar *
 pk_backend_get_author (PkBackend *backend)
 {
-	return g_strdup ("Andres Vargas <zodman@foresightlinux.org>");
+	return "Andres Vargas <zodman@foresightlinux.org>";
 }
 
 /**
@@ -54,6 +54,7 @@ pk_backend_initialize (PkBackend *backend)
 {
 	g_debug ("backend: initialize");
 	spawn = pk_backend_spawn_new ();
+	pk_backend_spawn_set_backend (priv->spawn, backend);
 	pk_backend_spawn_set_name (spawn, "conary");
 }
 

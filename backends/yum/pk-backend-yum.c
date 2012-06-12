@@ -47,20 +47,19 @@ static PkBackendYumPrivate *priv;
 /**
  * pk_backend_get_description:
  */
-gchar *
+const gchar *
 pk_backend_get_description (PkBackend *backend)
 {
-	return g_strdup ("YUM");
+	return "YUM";
 }
 
 /**
  * pk_backend_get_author:
  */
-gchar *
+const gchar *
 pk_backend_get_author (PkBackend *backend)
 {
-	return g_strdup ("Tim Lauridsen <timlau@fedoraproject.org>, "
-			 "Richard Hughes <richard@hughsie.com>");
+	return "Richard Hughes <richard@hughsie.com>";
 }
 
 /**
@@ -247,6 +246,7 @@ pk_backend_initialize (PkBackend *backend)
 
 	g_debug ("backend: initialize");
 	priv->spawn = pk_backend_spawn_new ();
+	pk_backend_spawn_set_backend (priv->spawn, backend);
 	pk_backend_spawn_set_filter_stderr (priv->spawn, pk_backend_stderr_cb);
 	pk_backend_spawn_set_filter_stdout (priv->spawn, pk_backend_stdout_cb);
 	pk_backend_spawn_set_name (priv->spawn, "yum");

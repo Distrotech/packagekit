@@ -58,7 +58,6 @@ typedef enum
 	PK_ENGINE_ERROR_INVALID_STATE,
 	PK_ENGINE_ERROR_REFUSED_BY_POLICY,
 	PK_ENGINE_ERROR_CANNOT_SET_PROXY,
-	PK_ENGINE_ERROR_CANNOT_SET_ROOT,
 	PK_ENGINE_ERROR_NOT_SUPPORTED,
 	PK_ENGINE_ERROR_CANNOT_ALLOCATE_TID,
 	PK_ENGINE_ERROR_CANNOT_CHECK_AUTH,
@@ -72,5 +71,7 @@ GType		 pk_engine_get_type		  	(void);
 PkEngine	*pk_engine_new				(void);
 
 guint		 pk_engine_get_seconds_idle		(PkEngine	*engine);
+gboolean	 pk_engine_load_backend			(PkEngine	*engine,
+							 GError		**error);
 
 #endif /* __PK_ENGINE_H */

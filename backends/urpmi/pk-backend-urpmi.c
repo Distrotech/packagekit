@@ -27,20 +27,20 @@ static PkBackendSpawn *spawn;
 /**
  * pk_backend_get_description:
  */
-gchar *
+const gchar *
 pk_backend_get_description (PkBackend *backend)
 {
-	return g_strdup ("URPMI");
+	return "URPMI";
 }
 
 /**
  * pk_backend_get_author:
  */
-gchar *
+const gchar *
 pk_backend_get_author (PkBackend *backend)
 {
-	return g_strdup ("Aurelien Lefebvre <alkh@mandriva.org>, "
-			"Per Oyvind Karlsen <peroyvind@mandriva.org>");
+	return "Aurelien Lefebvre <alkh@mandriva.org>, "
+		"Per Oyvind Karlsen <peroyvind@mandriva.org>";
 }
 
 /**
@@ -52,6 +52,7 @@ pk_backend_initialize (PkBackend *backend)
 {
 	g_debug ("backend: initialize");
 	spawn = pk_backend_spawn_new ();
+	pk_backend_spawn_set_backend (priv->spawn, backend);
 	pk_backend_spawn_set_name (spawn, "urpmi");
 }
 

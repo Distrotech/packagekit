@@ -25,9 +25,7 @@
 #include <string.h>
 #include <packagekit-glib2/pk-debug.h>
 #include <zif.h>
-#if ZIF_CHECK_VERSION(0,2,5)
 #include <zif-private.h>
-#endif
 
 #define PACKAGE_MEDIA_REPO_FILENAME		"/etc/yum.repos.d/packagekit-media.repo"
 
@@ -52,7 +50,7 @@ static PkBackendYumPrivate *priv;
 /**
  * pk_backend_get_description:
  */
-gchar *
+const gchar *
 pk_backend_get_description (PkBackend *backend)
 {
 	return g_strdup ("Zif");
@@ -61,7 +59,7 @@ pk_backend_get_description (PkBackend *backend)
 /**
  * pk_backend_get_author:
  */
-gchar *
+const gchar *
 pk_backend_get_author (PkBackend *backend)
 {
 	return g_strdup ("Richard Hughes <richard@hughsie.com>");
@@ -232,6 +230,21 @@ pk_backend_convert_error (const GError *error)
 		default:
 			error_code = PK_ERROR_ENUM_INTERNAL_ERROR;
 		}
+	} else if (error->domain == ZIF_LOCK_ERROR) {
+		switch (error->code) {
+		case ZIF_LOCK_ERROR_PERMISSION:
+			error_code = PK_ERROR_ENUM_NOT_AUTHORIZED;
+			break;
+		case ZIF_LOCK_ERROR_FAILED:
+			error_code = PK_ERROR_ENUM_LOCK_REQUIRED;
+			break;
+		case ZIF_LOCK_ERROR_ALREADY_LOCKED:
+			error_code = PK_ERROR_ENUM_CANNOT_GET_LOCK;
+			break;
+		case ZIF_LOCK_ERROR_NOT_LOCKED:
+		default:
+			error_code = PK_ERROR_ENUM_INTERNAL_ERROR;
+		}
 	}
 	if (error_code == PK_ERROR_ENUM_INTERNAL_ERROR) {
 		g_warning ("failed to match error: %s:%i: %s",
@@ -257,10 +270,8 @@ pk_backend_transaction_start (PkBackend *backend)
 	guint lock_delay;
 	guint lock_retries;
 	guint pid = 0;
-#if ZIF_CHECK_VERSION(0,2,4)
 	guint uid;
 	gchar *cmdline = NULL;
-#endif
 
 	/* only try a finite number of times */
 	lock_retries = zif_config_get_uint (priv->config, "lock_retries", NULL);
@@ -292,16 +303,6 @@ pk_backend_transaction_start (PkBackend *backend)
 				       PK_ERROR_ENUM_CANNOT_GET_LOCK,
 				       "failed to get lock, held by PID: %i",
 				       pid);
-		goto out;
-	}
-
-	/* this backend does not support a relocatable root... yet */
-	root = pk_backend_get_root (backend);
-	if (g_strcmp0 (root, "/") != 0) {
-		pk_backend_error_code (backend,
-				       PK_ERROR_ENUM_INSTALL_ROOT_INVALID,
-				       "backend does not support this root: '%s'",
-				       root);
 		goto out;
 	}
 
@@ -354,7 +355,6 @@ pk_backend_transaction_start (PkBackend *backend)
 				pk_backend_use_background (backend), NULL);
 
 	/* start with a new transaction */
-#if ZIF_CHECK_VERSION(0,2,4)
 	g_object_get (backend,
 		      "uid", &uid,
 		      NULL);
@@ -363,12 +363,9 @@ pk_backend_transaction_start (PkBackend *backend)
 		      "cmdline", &cmdline,
 		      NULL);
 	zif_transaction_set_cmdline (priv->transaction, cmdline);
-#endif
 	zif_transaction_reset (priv->transaction);
 out:
-#if ZIF_CHECK_VERSION(0,2,4)
 	g_free (cmdline);
-#endif
 	g_free (http_proxy);
 	return;
 }
@@ -1336,7 +1333,6 @@ pk_backend_search_thread (PkBackend *backend)
 				/* this is a group */
 				array = pk_backend_resolve_groups (store_array, search, state_local, &error);
 			} else {
-#if ZIF_CHECK_VERSION(0,2,4)
 				array = zif_store_array_resolve_full (store_array,
 								      search,
 								      ZIF_STORE_RESOLVE_FLAG_USE_ALL |
@@ -1344,12 +1340,6 @@ pk_backend_search_thread (PkBackend *backend)
 								      ZIF_STORE_RESOLVE_FLAG_USE_GLOB,
 								      state_local,
 								      &error);
-#else
-				array = zif_store_array_resolve (store_array,
-								 search,
-								 state_local,
-								 &error);
-#endif
 			}
 		} else if (role == PK_ROLE_ENUM_WHAT_PROVIDES) {
 			array = pk_backend_what_provides_helper (store_array, search, state_local, &error);
@@ -1454,9 +1444,7 @@ pk_backend_enable_media_repo (gboolean enabled)
 	zif_state_reset (state);
 	ret = zif_store_remote_set_enabled (repo,
 					    enabled,
-#if ZIF_CHECK_VERSION(0,1,6)
 					    state,
-#endif
 					    &error);
 	if (!ret) {
 		g_debug ("failed to set enable: %s", error->message);
@@ -1579,9 +1567,7 @@ pk_backend_state_action_changed_cb (ZifState *state,
 	case ZIF_STATE_ACTION_CHECKING:
 	case ZIF_STATE_ACTION_LOADING_REPOS:
 	case ZIF_STATE_ACTION_DECOMPRESSING:
-#if ZIF_CHECK_VERSION(0,2,4)
 	case ZIF_STATE_ACTION_LOADING_RPMDB:
-#endif
 		/* general cache loading */
 		status = PK_STATUS_ENUM_LOADING_CACHE;
 		break;
@@ -1629,9 +1615,7 @@ pk_backend_state_action_changed_cb (ZifState *state,
 	case ZIF_STATE_ACTION_DEPSOLVING_INSTALL:
 	case ZIF_STATE_ACTION_DEPSOLVING_REMOVE:
 	case ZIF_STATE_ACTION_DEPSOLVING_UPDATE:
-#if ZIF_CHECK_VERSION(0,2,4)
 	case ZIF_STATE_ACTION_CHECKING_UPDATES:
-#endif
 		status = PK_STATUS_ENUM_DEP_RESOLVE;
 		break;
 	case ZIF_STATE_ACTION_PREPARING:
@@ -1643,7 +1627,6 @@ pk_backend_state_action_changed_cb (ZifState *state,
 		pk_backend_set_status (backend, status);
 }
 
-#if ZIF_CHECK_VERSION(0,1,5)
 /**
  * pk_backend_speed_changed_cb:
  **/
@@ -1655,7 +1638,35 @@ pk_backend_speed_changed_cb (ZifState *state,
 	pk_backend_set_speed (backend,
 			      zif_state_get_speed (state));
 }
-#endif
+
+/**
+ * pk_backend_zif_lock_state_changed_cb:
+ **/
+static void
+pk_backend_zif_lock_state_changed_cb (ZifLock *lock,
+				      guint state_bitfield,
+				      PkBackend *backend)
+{
+	GString *str;
+	guint i;
+
+	/* tell the daemon the lock state; if any lock is taken then
+	 * this is going to run in exclusive mode */
+	pk_backend_set_locked (backend, state_bitfield != 0);
+
+	/* just print something pretty to the console */
+	str = g_string_new ("lock state: ");
+	for (i = 0; i < ZIF_LOCK_TYPE_LAST; i++) {
+		if (pk_bitfield_contain (state_bitfield, i)) {
+			g_string_append_printf (str, "%s ",
+						zif_lock_type_to_string (i));
+		}
+	}
+	if (state_bitfield == 0)
+		g_string_append (str, "none");
+	g_debug ("%s", str->str);
+	g_string_free (str, TRUE);
+}
 
 /**
  * pk_backend_initialize:
@@ -1693,11 +1704,6 @@ pk_backend_initialize (PkBackend *backend)
 	g_list_foreach (mounts, (GFunc) g_object_unref, NULL);
 	g_list_free (mounts);
 
-#if !ZIF_CHECK_VERSION(0,2,6)
-	/* init rpm */
-	zif_init ();
-#endif
-
 	/* TODO: hook up errors */
 	priv->cancellable = g_cancellable_new ();
 
@@ -1710,11 +1716,9 @@ pk_backend_initialize (PkBackend *backend)
 	g_signal_connect (priv->state, "action-changed",
 			  G_CALLBACK (pk_backend_state_action_changed_cb),
 			  backend);
-#if ZIF_CHECK_VERSION(0,1,5)
 	g_signal_connect (priv->state, "notify::speed",
 			  G_CALLBACK (pk_backend_speed_changed_cb),
 			  backend);
-#endif
 
 	/* we don't want to enable this for normal runtime */
 	//zif_state_set_enable_profile (priv->state, TRUE);
@@ -1749,6 +1753,9 @@ pk_backend_initialize (PkBackend *backend)
 
 	/* ZifLock */
 	priv->lock = zif_lock_new ();
+	g_signal_connect (priv->lock, "state-changed",
+			  G_CALLBACK (pk_backend_zif_lock_state_changed_cb),
+			  backend);
 
 	/* ZifRelease */
 	priv->release = zif_release_new ();
@@ -3639,20 +3646,14 @@ pk_backend_convert_transaction_reason_to_info_enum (ZifTransactionReason reason)
 	case ZIF_TRANSACTION_REASON_REMOVE_FOR_UPDATE:
 	case ZIF_TRANSACTION_REASON_REMOVE_OBSOLETE:
 	case ZIF_TRANSACTION_REASON_REMOVE_USER_ACTION:
-#if ZIF_CHECK_VERSION(0,2,8)
 	case ZIF_TRANSACTION_REASON_REMOVE_AUTO_DEP:
-#endif
 		return PK_INFO_ENUM_REMOVING;
 	case ZIF_TRANSACTION_REASON_UPDATE_DEPEND:
 	case ZIF_TRANSACTION_REASON_UPDATE_FOR_CONFLICT:
 	case ZIF_TRANSACTION_REASON_UPDATE_USER_ACTION:
-#if ZIF_CHECK_VERSION(0,2,4)
 	case ZIF_TRANSACTION_REASON_UPDATE_SYSTEM:
 	case ZIF_TRANSACTION_REASON_DOWNGRADE_USER_ACTION:
-#endif
-#if ZIF_CHECK_VERSION(0,2,5)
 	case ZIF_TRANSACTION_REASON_DOWNGRADE_FOR_DEP:
-#endif
 		return PK_INFO_ENUM_UPDATING;
 	default:
 		return PK_INFO_ENUM_AVAILABLE;
@@ -3678,9 +3679,7 @@ pk_backend_run_transaction (PkBackend *backend, ZifState *state)
 	ZifPackage *package;
 	ZifPackageTrustKind trust_kind;
 	ZifState *state_local;
-#if ZIF_CHECK_VERSION(0,2,5)
 	ZifTransactionFlags flags = 0;
-#endif
 
 	/* set steps */
 	transaction_flags = pk_backend_get_uint (backend, "transaction_flags");
@@ -3862,7 +3861,6 @@ pk_backend_run_transaction (PkBackend *backend, ZifState *state)
 
 	/* commit the transaction */
 	state_local = zif_state_get_child (state);
-#if ZIF_CHECK_VERSION(0,2,5)
 	if (!pk_bitfield_contain (transaction_flags,
 				  PK_TRANSACTION_FLAG_ENUM_ONLY_TRUSTED)) {
 		flags = ZIF_TRANSACTION_FLAG_ALLOW_UNTRUSTED;
@@ -3871,11 +3869,6 @@ pk_backend_run_transaction (PkBackend *backend, ZifState *state)
 					   flags,
 					   state_local,
 					   &error);
-#else
-	ret = zif_transaction_commit (priv->transaction,
-				      state_local,
-				      &error);
-#endif
 	if (!ret) {
 		pk_backend_error_code (backend,
 				       pk_backend_convert_error (error),
@@ -3911,9 +3904,7 @@ out:
 static gboolean
 pk_backend_remove_packages_thread (PkBackend *backend)
 {
-#if ZIF_CHECK_VERSION(0,2,8)
 	gboolean autoremove;
-#endif
 	gboolean ret;
 	gchar **package_ids;
 	GError *error = NULL;
@@ -3934,13 +3925,11 @@ pk_backend_remove_packages_thread (PkBackend *backend)
 				   -1);
 	g_assert (ret);
 
-#if ZIF_CHECK_VERSION(0,2,8)
 	/* setup autoremove */
 	autoremove = pk_backend_get_bool (backend, "autoremove");
 	zif_config_set_boolean (priv->config,
 				"clean_requirements_on_remove",
 				autoremove, NULL);
-#endif
 
 	state_local = zif_state_get_child (priv->state);
 	package_ids = pk_backend_get_strv (backend, "package_ids");
@@ -4869,9 +4858,7 @@ pk_backend_repo_enable_thread (PkBackend *backend)
 	state_local = zif_state_get_child (priv->state);
 	ret = zif_store_remote_set_enabled (repo,
 					    enabled,
-#if ZIF_CHECK_VERSION(0,1,6)
 					    state_local,
-#endif
 					    &error);
 	if (!ret) {
 		pk_backend_error_code (backend,

@@ -34,6 +34,7 @@ pk_backend_initialize (PkBackend *backend)
 {
 	g_debug ("backend: initialize");
 	spawn = pk_backend_spawn_new ();
+	pk_backend_spawn_set_backend (priv->spawn, backend);
 	pk_backend_spawn_set_name (spawn, "entropy");
 	/* allowing sigkill as long as no one complain */
 	pk_backend_spawn_set_allow_sigkill (spawn, TRUE);
@@ -558,17 +559,17 @@ pk_backend_simulate_install_files (PkBackend *backend, gchar **full_paths)
 /**
  * pk_backend_get_description:
  */
-gchar *
+const gchar *
 pk_backend_get_description (PkBackend *backend)
 {
-    return g_strdup ("Entropy");
+    return "Entropy";
 }
 
 /**
  * pk_backend_get_author:
  */
-gchar *
+const gchar *
 pk_backend_get_author (PkBackend *backend)
 {
-    return g_strdup ("Fabio Erculiani (lxnay) <lxnay@sabayon.org>");
+    return "Fabio Erculiani (lxnay) <lxnay@sabayon.org>";
 }

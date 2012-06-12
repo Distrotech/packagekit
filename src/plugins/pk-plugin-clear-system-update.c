@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2007 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2012 Richard Hughes <richard@hughsie.com>
  *
  * Licensed under the GNU General Public License Version 2
  *
@@ -19,15 +19,33 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include <gmodule.h>
-#include <glib.h>
-#include <pk-backend.h>
+#include <config.h>
+#include <pk-plugin.h>
 
 /**
- * pk_backend_get_description:
+ * pk_plugin_get_description:
  */
 const gchar *
-pk_backend_get_description (PkBackend *backend)
+pk_plugin_get_description (void)
 {
-	return g_strdup ("Test NOP");
+	return "Remove the prepared update notifier if a transaction is "
+		"done that could modify the validity";
+}
+
+/**
+ * pk_plugin_transaction_finished_end:
+ */
+void
+pk_plugin_transaction_finished_end (PkPlugin *plugin,
+				    PkTransaction *transaction)
+{
+	PkRoleEnum role;
+
+	/* just delete the file, no questions asked :) */
+	role = pk_transaction_get_role (transaction);
+	if (role == PK_ROLE_ENUM_REFRESH_CACHE ||
+	    role == PK_ROLE_ENUM_UPDATE_SYSTEM ||
+	    role == PK_ROLE_ENUM_UPDATE_PACKAGES) {
+		unlink ("/system-update");
+	}
 }

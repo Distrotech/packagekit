@@ -79,6 +79,18 @@ pk_backend_spawn_get_backend (PkBackendSpawn *backend_spawn)
 }
 
 /**
+ * pk_backend_spawn_set_backend:
+ **/
+void
+pk_backend_spawn_set_backend (PkBackendSpawn *backend_spawn,
+			      PkBackend *backend)
+{
+	g_return_if_fail (PK_IS_BACKEND_SPAWN (backend_spawn));
+	g_return_if_fail (backend_spawn->priv->backend == NULL);
+	backend_spawn->priv->backend = g_object_ref (backend);
+}
+
+/**
  * pk_backend_spawn_set_filter_stdout:
  **/
 gboolean
@@ -260,6 +272,8 @@ pk_backend_spawn_parse_stdout (PkBackendSpawn *backend_spawn, const gchar *line,
 			goto out;
 		}
 	} else if (g_strcmp0 (command, "updatedetail") == 0) {
+		gchar **updates;
+		gchar **obsoletes;
 		if (size != 13) {
 			g_set_error (error, 1, 0, "invalid command '%s', size %i", command, size);
 			ret = FALSE;
@@ -275,11 +289,23 @@ pk_backend_spawn_parse_stdout (PkBackendSpawn *backend_spawn, const gchar *line,
 		/* convert ; to \n as we can't emit them on stdout */
 		g_strdelimit (sections[8], ";", '\n');
 		g_strdelimit (sections[9], ";", '\n');
-		pk_backend_update_detail (priv->backend, sections[1],
-					  sections[2], sections[3], sections[4],
-					  sections[5], sections[6], restart, sections[8],
-					  sections[9], update_state_enum,
-					  sections[11], sections[12]);
+		updates = g_strsplit (sections[2], "&", -1);
+		obsoletes = g_strsplit (sections[3], "&", -1);
+		pk_backend_update_detail (priv->backend,
+					  sections[1],
+					  updates,
+					  obsoletes,
+					  sections[4],
+					  sections[5],
+					  sections[6],
+					  restart,
+					  sections[8],
+					  sections[9],
+					  update_state_enum,
+					  sections[11],
+					  sections[12]);
+		g_strfreev (updates);
+		g_strfreev (obsoletes);
 	} else if (g_strcmp0 (command, "percentage") == 0) {
 		if (size != 2) {
 			g_set_error (error, 1, 0, "invalid command'%s', size %i", command, size);
@@ -724,12 +750,11 @@ pk_backend_spawn_get_envp (PkBackendSpawn *backend_spawn)
 	gboolean ret;
 	PkHintEnum interactive;
 	PkBackendSpawnPrivate *priv = backend_spawn->priv;
-
-	gboolean keep_environment =
-		pk_backend_get_keep_environment (backend_spawn->priv->backend);
+	gboolean keep_environment;
 
 	env_table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-
+	keep_environment = pk_conf_get_bool (backend_spawn->priv->conf,
+					     "KeepEnvironment");
 	g_debug ("keep_environment: %i", keep_environment);
 
 	if (keep_environment) {
@@ -813,11 +838,6 @@ pk_backend_spawn_get_envp (PkBackendSpawn *backend_spawn)
 	value = pk_backend_get_frontend_socket (priv->backend);
 	if (!pk_strzero (value))
 		g_hash_table_replace (env_table, g_strdup ("FRONTEND_SOCKET"), g_strdup (value));
-
-	/* ROOT */
-	value = pk_backend_get_root (priv->backend);
-	if (!pk_strzero (value))
-		g_hash_table_replace (env_table, g_strdup ("ROOT"), g_strdup (value));
 
 	/* NETWORK */
 	ret = pk_backend_is_online (priv->backend);
@@ -1049,12 +1069,20 @@ pk_backend_spawn_exit (PkBackendSpawn *backend_spawn)
 gboolean
 pk_backend_spawn_helper (PkBackendSpawn *backend_spawn, const gchar *first_element, ...)
 {
-	gboolean ret;
+	gboolean ret = FALSE;
 	va_list args;
 
 	g_return_val_if_fail (PK_IS_BACKEND_SPAWN (backend_spawn), FALSE);
 	g_return_val_if_fail (first_element != NULL, FALSE);
 	g_return_val_if_fail (backend_spawn->priv->name != NULL, FALSE);
+
+	/* ensure this has been set */
+	if (backend_spawn->priv->backend == NULL) {
+		g_critical ("no PkBackend set in PkBackendSpawn -- "
+			    "ensure you have used pk_backend_spawn_set_backend() "
+			    "in your pk_backend_initialize()");
+		goto out;
+	}
 
 	/* don't auto-kill this */
 	if (backend_spawn->priv->kill_id > 0) {
@@ -1066,7 +1094,7 @@ pk_backend_spawn_helper (PkBackendSpawn *backend_spawn, const gchar *first_eleme
 	va_start (args, first_element);
 	ret = pk_backend_spawn_helper_va_list (backend_spawn, first_element, &args);
 	va_end (args);
-
+out:
 	return ret;
 }
 
@@ -1142,7 +1170,6 @@ pk_backend_spawn_init (PkBackendSpawn *backend_spawn)
 	backend_spawn->priv->stderr_func = NULL;
 	backend_spawn->priv->finished = FALSE;
 	backend_spawn->priv->conf = pk_conf_new ();
-	backend_spawn->priv->backend = pk_backend_new ();
 	backend_spawn->priv->spawn = pk_spawn_new ();
 	g_signal_connect (backend_spawn->priv->spawn, "exit",
 			  G_CALLBACK (pk_backend_spawn_exit_cb), backend_spawn);

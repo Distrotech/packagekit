@@ -36,6 +36,7 @@ pk_backend_initialize (PkBackend *backend)
 {
 	g_debug ("backend: initialize");
 	spawn = pk_backend_spawn_new ();
+	pk_backend_spawn_set_backend (priv->spawn, backend);
 	pk_backend_spawn_set_name (spawn, "smart");
 }
 
@@ -459,18 +460,18 @@ pk_backend_repo_set_data (PkBackend *backend, const gchar *rid, const gchar *par
 /**
  * pk_backend_get_description:
  */
-gchar *
+const gchar *
 pk_backend_get_description (PkBackend *backend)
 {
-	return g_strdup ("Smart");
+	return "Smart";
 }
 
 /**
  * pk_backend_get_author:
  */
-gchar *
+const gchar *
 pk_backend_get_author (PkBackend *backend)
 {
-	return g_strdup ("James Bowes <jbowes@dangerouslyinc.com>, "
-	                 "Anders F Björklund <afb@users.sourceforge.net>");
+	return "James Bowes <jbowes@dangerouslyinc.com>, "
+	       "Anders F Björklund <afb@users.sourceforge.net>";
 }

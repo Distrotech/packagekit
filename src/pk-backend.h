@@ -92,15 +92,12 @@ typedef enum {
 
 GType		 pk_backend_get_type			(void);
 PkBackend	*pk_backend_new				(void);
-gboolean	 pk_backend_open			(PkBackend	*backend)
-							 G_GNUC_WARN_UNUSED_RESULT;
-gboolean	 pk_backend_close			(PkBackend	*backend)
-							 G_GNUC_WARN_UNUSED_RESULT;
-gboolean	 pk_backend_reset			(PkBackend	*backend);
-gboolean	 pk_backend_set_name			(PkBackend	*backend,
-							 const gchar	*name,
+gboolean	 pk_backend_load			(PkBackend	*backend,
 							 GError		**error)
 							 G_GNUC_WARN_UNUSED_RESULT;
+gboolean	 pk_backend_unload			(PkBackend	*backend)
+							 G_GNUC_WARN_UNUSED_RESULT;
+gboolean	 pk_backend_reset			(PkBackend	*backend);
 gboolean	 pk_backend_set_proxy			(PkBackend	*backend,
 							 const gchar	*proxy_http,
 							 const gchar	*proxy_https,
@@ -108,23 +105,18 @@ gboolean	 pk_backend_set_proxy			(PkBackend	*backend,
 							 const gchar	*proxy_socks,
 							 const gchar	*no_proxy,
 							 const gchar	*pac);
-gboolean	 pk_backend_set_root			(PkBackend	*backend,
-							 const gchar	*root);
 gboolean	 pk_backend_set_uid			(PkBackend	*backend,
 							 guint		 uid);
 gboolean	 pk_backend_set_cmdline			(PkBackend	*backend,
 							 const gchar	*cmdline);
-gboolean	 pk_backend_set_keep_environment	(PkBackend	*backend,
-							 gboolean keep_environment);
-gchar		*pk_backend_get_name			(PkBackend	*backend)
-							 G_GNUC_WARN_UNUSED_RESULT;
 gboolean	 pk_backend_get_is_finished		(PkBackend	*backend);
 
-gchar		*pk_backend_get_description		(PkBackend	*backend)
+const gchar	*pk_backend_get_name			(PkBackend	*backend)
 							 G_GNUC_WARN_UNUSED_RESULT;
-gchar		*pk_backend_get_author			(PkBackend	*backend)
+const gchar	*pk_backend_get_description		(PkBackend	*backend)
 							 G_GNUC_WARN_UNUSED_RESULT;
-gboolean	 pk_backend_get_keep_environment	(PkBackend	*backend);
+const gchar	*pk_backend_get_author			(PkBackend	*backend)
+							 G_GNUC_WARN_UNUSED_RESULT;
 
 typedef gchar	*(*PkBackendGetCompatStringFunc)	(PkBackend	*backend);
 PkBitfield	 pk_backend_get_groups			(PkBackend	*backend);
@@ -259,6 +251,7 @@ void		 pk_backend_set_cache_age		(PkBackend	*backend,
 
 /* get the state */
 gboolean	 pk_backend_get_allow_cancel		(PkBackend	*backend);
+gboolean	 pk_backend_get_locked			(PkBackend	*backend);
 gboolean         pk_backend_get_is_error_set		(PkBackend	*backend);
 guint		 pk_backend_get_runtime			(PkBackend	*backend);
 gchar		*pk_backend_get_proxy_ftp		(PkBackend	*backend);
@@ -267,7 +260,6 @@ gchar		*pk_backend_get_proxy_https		(PkBackend	*backend);
 gchar		*pk_backend_get_proxy_socks		(PkBackend	*backend);
 gchar		*pk_backend_get_no_proxy		(PkBackend	*backend);
 gchar		*pk_backend_get_pac			(PkBackend	*backend);
-const gchar	*pk_backend_get_root			(PkBackend	*backend);
 gchar		*pk_backend_get_locale			(PkBackend	*backend);
 gchar		*pk_backend_get_frontend_socket		(PkBackend	*backend);
 guint		 pk_backend_get_cache_age		(PkBackend	*backend);
@@ -293,8 +285,8 @@ gboolean	 pk_backend_repo_detail			(PkBackend	*backend,
 							 gboolean	 enabled);
 gboolean	 pk_backend_update_detail		(PkBackend	*backend,
 							 const gchar	*package_id,
-							 const gchar	*updates,
-							 const gchar	*obsoletes,
+							 gchar		**updates,
+							 gchar		**obsoletes,
 							 const gchar	*vendor_url,
 							 const gchar	*bugzilla_url,
 							 const gchar	*cve_url,

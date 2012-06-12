@@ -39,7 +39,6 @@
 #include "pk-engine.h"
 #include "pk-syslog.h"
 #include "pk-transaction.h"
-#include "pk-backend.h"
 
 static guint exit_idle_time;
 static GMainLoop *loop;
@@ -118,6 +117,76 @@ pk_main_sigint_handler (int sig)
 
 #endif
 
+
+/**
+ * pk_main_sort_backends_cb:
+ **/
+static gint
+pk_main_sort_backends_cb (const gchar **store1,
+			  const gchar **store2)
+{
+	return g_strcmp0 (*store2, *store1);
+}
+
+/**
+ * pk_main_set_auto_backend:
+ **/
+static gboolean
+pk_main_set_auto_backend (PkConf *conf, GError **error)
+{
+	const gchar *tmp;
+	gboolean ret = TRUE;
+	gchar *name_tmp;
+	GDir *dir = NULL;
+	GPtrArray *array = NULL;
+
+	dir = g_dir_open (LIBDIR "/packagekit-backend", 0, error);
+	if (dir == NULL)
+		goto out;
+	array = g_ptr_array_new_with_free_func (g_free);
+	do {
+		tmp = g_dir_read_name (dir);
+		if (tmp == NULL)
+			break;
+		if (!g_str_has_prefix (tmp, "libpk_backend_"))
+			continue;
+		if (!g_str_has_suffix (tmp, G_MODULE_SUFFIX))
+			continue;
+		if (g_strstr_len (tmp, -1, "libpk_backend_dummy"))
+			continue;
+		if (g_strstr_len (tmp, -1, "libpk_backend_test"))
+			continue;
+
+		/* turn 'libpk_backend_test.so' into 'test' */
+		name_tmp = g_strdup (tmp + 14);
+		g_strdelimit (name_tmp, ".", '\0');
+		g_ptr_array_add (array,
+				 name_tmp);
+	} while (1);
+
+	/* need to sort by id predictably */
+	g_ptr_array_sort (array,
+			  (GCompareFunc) pk_main_sort_backends_cb);
+
+	/* set best backend */
+	if (array->len == 0) {
+		g_set_error_literal (error, 1, 0, "No backends found");
+		ret = FALSE;
+		goto out;
+	}
+	tmp = g_ptr_array_index (array, 0);
+	pk_conf_set_string (conf,
+			    "DefaultBackend",
+			    tmp);
+
+out:
+	if (array != NULL)
+		g_ptr_array_unref (array);
+	if (dir != NULL)
+		g_dir_close (dir);
+	return ret;
+}
+
 /**
  * main:
  **/
@@ -133,10 +202,7 @@ main (int argc, char *argv[])
 	gboolean keep_environment = FALSE;
 	gboolean do_logging = FALSE;
 	gchar *backend_name = NULL;
-	gchar **backend_names = NULL;
-	guint i;
 	PkEngine *engine = NULL;
-	PkBackend *backend = NULL;
 	PkConf *conf = NULL;
 	PkSyslog *syslog = NULL;
 	GError *error = NULL;
@@ -217,6 +283,7 @@ main (int argc, char *argv[])
 
 	/* get values from the config file */
 	conf = pk_conf_new ();
+	pk_conf_set_bool (conf, "KeepEnvironment", keep_environment);
 
 	/* log the startup */
 	syslog = pk_syslog_new ();
@@ -230,32 +297,24 @@ main (int argc, char *argv[])
 	exit_idle_time = pk_conf_get_int (conf, "ShutdownTimeout");
 	g_debug ("daemon shutdown set to %i seconds", exit_idle_time);
 
-	if (backend_name == NULL) {
-		backend_name = pk_conf_get_string (conf, "DefaultBackend");
-		g_debug ("using default backend %s", backend_name);
-	}
-	backend_names = g_strsplit (backend_name, ",", -1);
-
-	/* try to load our chosen backends in order */
-	backend = pk_backend_new ();
-	for (i=0; backend_names[i] != NULL; i++) {
-		ret = pk_backend_set_name (backend, backend_names[i], &error);
-		if (ret)
-			break;
-		g_warning ("backend %s invalid: %s",
-			   backend_names[i],
-			   error->message);
-		g_clear_error (&error);
-	}
-	if (!ret) {
-		/* TRANSLATORS: cannot load the backend the user specified */
-		g_print ("%s: %s\n",
-			 _("Failed to load any of the specified backends:"),
-			 backend_name);
-		goto out;
+	/* override the backend name */
+	if (backend_name != NULL) {
+		pk_conf_set_string (conf,
+				    "DefaultBackend",
+				    backend_name);
 	}
 
-	pk_backend_set_keep_environment (backend, keep_environment);
+	/* resolve 'auto' to an actual name */
+	backend_name = pk_conf_get_string (conf, "DefaultBackend");
+	if (g_strcmp0 (backend_name, "auto") == 0) {
+		ret  = pk_main_set_auto_backend (conf, &error);
+		if (!ret) {
+			g_print ("Failed to resolve auto: %s",
+				 error->message);
+			g_error_free (error);
+			goto out;
+		}
+	}
 
 	loop = g_main_loop_new (NULL, FALSE);
 
@@ -263,6 +322,16 @@ main (int argc, char *argv[])
 	engine = pk_engine_new ();
 	g_signal_connect (engine, "quit",
 			  G_CALLBACK (pk_main_quit_cb), loop);
+
+	/* load the backend */
+	ret = pk_engine_load_backend (engine, &error);
+	if (!ret) {
+		/* TRANSLATORS: cannot load the backend the user specified */
+		g_print ("Failed to load the backend: %s",
+			 error->message);
+		g_error_free (error);
+		goto out;
+	}
 
 	/* Only timeout and close the mainloop if we have specified it
 	 * on the command line */
@@ -281,7 +350,6 @@ main (int argc, char *argv[])
 
 	/* run until quit */
 	g_main_loop_run (loop);
-
 out:
 	/* log the shutdown */
 	pk_syslog_add (syslog, PK_SYSLOG_TYPE_INFO, "daemon quit");
@@ -295,8 +363,6 @@ out:
 	g_object_unref (conf);
 	if (engine != NULL)
 		g_object_unref (engine);
-	g_object_unref (backend);
-	g_strfreev (backend_names);
 	g_free (backend_name);
 
 exit_program:

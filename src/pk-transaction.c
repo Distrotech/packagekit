@@ -606,7 +606,6 @@ pk_transaction_files_cb (PkBackend *backend,
 			 PkFiles *item,
 			 PkTransaction *transaction)
 {
-	gchar *filelist = NULL;
 	guint i;
 	gchar *package_id;
 	gchar **files;
@@ -636,18 +635,16 @@ pk_transaction_files_cb (PkBackend *backend,
 	pk_results_add_files (transaction->priv->results, item);
 
 	/* emit */
-	filelist = g_strjoinv (";", files);
-	g_debug ("emitting files %s, %s", package_id, filelist);
+	g_debug ("emitting files %s", package_id);
 	g_dbus_connection_emit_signal (transaction->priv->connection,
 				       NULL,
 				       transaction->priv->tid,
 				       PK_DBUS_INTERFACE_TRANSACTION,
 				       "Files",
-				       g_variant_new ("(ss)",
+				       g_variant_new ("(s^as)",
 						      package_id,
-						      filelist),
+						      files),
 				       NULL);
-	g_free (filelist);
 	g_free (package_id);
 	g_strfreev (files);
 }
@@ -991,6 +988,18 @@ pk_transaction_get_conf (PkTransaction *transaction)
 {
 	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), NULL);
 	return transaction->priv->conf;
+}
+
+/**
+ * pk_transaction_get_backend:
+ *
+ * Returns: (transfer none): PkBackend for this transaction
+ **/
+PkBackend *
+pk_transaction_get_backend (PkTransaction *transaction)
+{
+	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), NULL);
+	return transaction->priv->backend;
 }
 
 /**
@@ -1735,9 +1744,10 @@ pk_transaction_update_detail_cb (PkBackend *backend,
 				 PkUpdateDetail *item,
 				 PkTransaction *transaction)
 {
+	gchar *empty[] = { NULL };
 	gchar *package_id;
-	gchar *updates;
-	gchar *obsoletes;
+	gchar **updates;
+	gchar **obsoletes;
 	gchar *vendor_url;
 	gchar *bugzilla_url;
 	gchar *cve_url;
@@ -1777,10 +1787,10 @@ pk_transaction_update_detail_cb (PkBackend *backend,
 				       transaction->priv->tid,
 				       PK_DBUS_INTERFACE_TRANSACTION,
 				       "UpdateDetail",
-				       g_variant_new ("(ssssssussuss)",
+				       g_variant_new ("(s^as^assssussuss)",
 						      package_id,
-						      updates != NULL ? updates : "",
-						      obsoletes != NULL ? obsoletes : "",
+						      updates != NULL ? updates : empty,
+						      obsoletes != NULL ? obsoletes : empty,
 						      vendor_url != NULL ? vendor_url : "",
 						      bugzilla_url != NULL ? bugzilla_url : "",
 						      cve_url != NULL ? cve_url : "",
@@ -1793,8 +1803,8 @@ pk_transaction_update_detail_cb (PkBackend *backend,
 				       NULL);
 
 	g_free (package_id);
-	g_free (updates);
-	g_free (obsoletes);
+	g_strfreev (updates);
+	g_strfreev (obsoletes);
 	g_free (vendor_url);
 	g_free (bugzilla_url);
 	g_free (cve_url);
@@ -1819,7 +1829,6 @@ pk_transaction_set_session_state (PkTransaction *transaction,
 	gchar *proxy_socks = NULL;
 	gchar *no_proxy = NULL;
 	gchar *pac = NULL;
-	gchar *root = NULL;
 	gchar *cmdline = NULL;
 	PkTransactionPrivate *priv = transaction->priv;
 
@@ -1830,18 +1839,30 @@ pk_transaction_set_session_state (PkTransaction *transaction,
 		goto out;
 	}
 
-	/* get from database */
-	ret = pk_transaction_db_get_proxy (priv->transaction_db, priv->uid, session,
-					   &proxy_http,
-					   &proxy_https,
-					   &proxy_ftp,
-					   &proxy_socks,
-					   &no_proxy,
-					   &pac);
-	if (!ret) {
-		g_set_error_literal (error, 1, 0,
-				     "failed to get the proxy from the database");
-		goto out;
+	/* get from config file */
+	proxy_http = pk_conf_get_string (priv->conf, "ProxyHTTP");
+	proxy_https = pk_conf_get_string (priv->conf, "ProxyHTTPS");
+	proxy_ftp = pk_conf_get_string (priv->conf, "ProxyFTP");
+	proxy_socks = pk_conf_get_string (priv->conf, "ProxySOCKS");
+	no_proxy = pk_conf_get_string (priv->conf, "NoProxy");
+	pac = pk_conf_get_string (priv->conf, "PAC");
+
+	/* fall back to database */
+	if (proxy_http == NULL) {
+		ret = pk_transaction_db_get_proxy (priv->transaction_db,
+						   priv->uid,
+						   session,
+						   &proxy_http,
+						   &proxy_https,
+						   &proxy_ftp,
+						   &proxy_socks,
+						   &no_proxy,
+						   &pac);
+		if (!ret) {
+			g_set_error_literal (error, 1, 0,
+					     "failed to get the proxy from the database");
+			goto out;
+		}
 	}
 
 	/* try to set the new proxy */
@@ -1857,21 +1878,8 @@ pk_transaction_set_session_state (PkTransaction *transaction,
 		goto out;
 	}
 
-	/* get from database */
-	ret = pk_transaction_db_get_root (priv->transaction_db, priv->uid, session, &root);
-	if (!ret) {
-		g_set_error_literal (error, 1, 0, "failed to get the root from the database");
-		goto out;
-	}
-
-	/* try to set the new proxy */
-	ret = pk_backend_set_root (priv->backend, root);
-	if (!ret) {
-		g_set_error_literal (error, 1, 0, "failed to set the root");
-		goto out;
-	}
-	g_debug ("using http_proxy=%s, ftp_proxy=%s, root=%s for %i:%s",
-		   proxy_http, proxy_ftp, root, priv->uid, session);
+	g_debug ("using http_proxy=%s, ftp_proxy=%s, for %i:%s",
+		   proxy_http, proxy_ftp, priv->uid, session);
 
 	/* try to set the new uid and cmdline */
 	cmdline = g_strdup_printf ("PackageKit: %s",
@@ -5141,7 +5149,7 @@ pk_transaction_what_provides (PkTransaction *transaction,
 	g_return_if_fail (PK_IS_TRANSACTION (transaction));
 	g_return_if_fail (transaction->priv->tid != NULL);
 
-	g_variant_get (params, "(t&u^a&s)",
+	g_variant_get (params, "(tu^a&s)",
 		       &filter,
 		       &provides,
 		       &values);

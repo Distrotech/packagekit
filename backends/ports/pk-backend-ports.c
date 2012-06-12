@@ -34,6 +34,7 @@ pk_backend_initialize (PkBackend *backend)
 {
 	g_debug ("backend: initialize");
 	spawn = pk_backend_spawn_new ();
+	pk_backend_spawn_set_backend (priv->spawn, backend);
 	pk_backend_spawn_set_name (spawn, "ports");
 	/* allowing sigkill as long as no one complain */
 	pk_backend_spawn_set_allow_sigkill (spawn, TRUE);
@@ -412,18 +413,18 @@ pk_backend_update_system (PkBackend *backend, gboolean only_trusted)
 /**
  * pk_backend_get_description:
  */
-gchar *
+const gchar *
 pk_backend_get_description (PkBackend *backend)
 {
-	return g_strdup ("Ports");
+	return "Ports";
 }
 
 /**
  * pk_backend_get_author:
  */
-gchar *
+const gchar *
 pk_backend_get_author (PkBackend *backend)
 {
-	return g_strdup ("Anders F Björklund <afb@users.sourceforge.net>");
+	return "Anders F Björklund <afb@users.sourceforge.net>";
 }
 
