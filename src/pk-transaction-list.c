@@ -67,6 +67,7 @@ typedef struct {
 	guint			 commit_id;
 	gulong			 finished_id;
 	guint			 uid;
+	guint			 tries;
 	gboolean		 background;
 } PkTransactionItem;
 
@@ -400,6 +401,9 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 	guint timeout;
 	PkTransactionItem *item;
 	PkTransactionState state;
+	PkResults *results;
+	PkBackend *backend;
+	PkError *error;
 	const gchar *tid;
 
 	g_return_if_fail (PK_IS_TRANSACTION_LIST (tlist));
@@ -416,6 +420,27 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		return;
 	}
 
+	results = pk_transaction_get_results (item->transaction);
+	error = pk_results_get_error_code (results);
+
+	if (pk_error_get_code (error) == PK_ERROR_ENUM_LOCK_REQUIRED) {
+		pk_transaction_reset_after_lock_error (item->transaction);
+
+		/* increase the number of tries */
+		item->tries++;
+
+		if (item->tries > 4) {
+			/* fail the transaction */
+			backend = pk_transaction_get_backend (item->transaction);
+
+			/* TRANSLATORS: We finally failed completely to get a package manager lock */
+			pk_backend_error_code (backend, PK_ERROR_ENUM_CANNOT_GET_LOCK, _("Unable to lock package database! There is probably another application using it already."));
+
+		} else {
+			goto out;
+		}
+	}
+
 	/* we've been 'used' */
 	if (item->commit_id != 0) {
 		g_source_remove (item->commit_id);
@@ -429,16 +454,20 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		return;
 	}
 
-	/* we have changed what is running */
-	g_debug ("emmitting ::changed");
-	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
-
 	/* give the client a few seconds to still query the runner */
 	timeout = pk_conf_get_int (tlist->priv->conf, "TransactionKeepFinishedTimeout");
 	item->remove_id = g_timeout_add_seconds (timeout, (GSourceFunc) pk_transaction_list_remove_item_cb, item);
 	g_source_set_name_by_id (item->remove_id, "[PkTransactionList] remove");
 
-	/* do the next transaction now if we have another queued */
+out:
+	if (error != NULL)
+		g_object_unref (error);
+
+	/* we have changed what is running */
+	g_debug ("emmitting ::changed");
+	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
+
+	/* try to run the next transaction, if possible */
 	item = pk_transaction_list_get_next_item (tlist);
 	if (item != NULL) {
 		g_debug ("running %s as previous one finished", item->tid);
@@ -574,9 +603,10 @@ out:
 	return ret;
 }
 
-#if 0
 /**
  * pk_transaction_list_get_active_transaction:
+ *
+ * TODO: No longer valid for parallel transactions!
  **/
 static PkTransactionItem *
 pk_transaction_list_get_active_transaction (PkTransactionList *tlist)
@@ -596,7 +626,6 @@ pk_transaction_list_get_active_transaction (PkTransactionList *tlist)
 	}
 	return NULL;
 }
-#endif
 
 /**
  * pk_transaction_list_cancel_background:

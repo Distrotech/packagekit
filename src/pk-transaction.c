@@ -592,8 +592,12 @@ pk_transaction_error_code_cb (PkBackend *backend,
 	pk_results_set_error_code (transaction->priv->results, item);
 
 	/* emit, if it is not the internally-handled LOCK_REQUIRED status */
-	if (code != PK_ERROR_ENUM_LOCK_REQUIRED)
+	if (code == PK_ERROR_ENUM_LOCK_REQUIRED) {
+		/* we are an exclusive transaction now! */
+		pk_transaction_locked_changed_cb (backend, TRUE, transaction);
+	} else {
 		pk_transaction_error_code_emit (transaction, code, details);
+	}
 
 	g_free (details);
 }
@@ -5611,6 +5615,24 @@ pk_transaction_setup_mime_types (PkTransaction *transaction)
 
 	g_free (mime_types_str);
 	g_strfreev (mime_types);
+}
+
+/**
+ * pk_transaction_reset_after_lock_error:
+ **/
+void
+pk_transaction_reset_after_lock_error (PkTransaction *transaction)
+{
+	PkTransactionPrivate *priv = PK_TRANSACTION_GET_PRIVATE (transaction);
+	g_return_if_fail (PK_IS_TRANSACTION (transaction));
+
+	/* clear results */
+	g_object_unref (priv->results);
+	priv->results = pk_results_new ();
+
+	/* reset transaction state */
+	priv->state = PK_TRANSACTION_STATE_READY;
+	pk_transaction_set_state (transaction, PK_TRANSACTION_STATE_READY);
 }
 
 /**
