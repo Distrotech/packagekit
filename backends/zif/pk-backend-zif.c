@@ -261,54 +261,45 @@ pk_backend_convert_error (const GError *error)
 void
 pk_backend_transaction_start (PkBackend *backend)
 {
-	const gchar *root;
 	gboolean ret = FALSE;
 	gchar *http_proxy = NULL;
 	GError *error = NULL;
 	guint cache_age;
-	guint i;
-	guint lock_delay;
-	guint lock_retries;
-	guint pid = 0;
 	guint uid;
 	gchar *cmdline = NULL;
 
-	/* only try a finite number of times */
-	lock_retries = zif_config_get_uint (priv->config, "lock_retries", NULL);
-	lock_delay = zif_config_get_uint (priv->config, "lock_delay", NULL);
-	for (i=0; i<lock_retries; i++) {
-
-		/* try to lock */
-		ret = zif_lock_set_locked (priv->lock, &pid, &error);
-		if (ret)
-			break;
-
-		/* we're now waiting */
-		pk_backend_set_status (backend, PK_STATUS_ENUM_WAITING_FOR_LOCK);
-
-		/* now wait */
-		g_debug ("Failed to lock on try %i of %i, already locked by PID %i "
-			 "(sleeping for %ims): %s\n",
-			   i+1, lock_retries,
-			   pid,
-			   lock_delay,
-			   error->message);
-		g_clear_error (&error);
-		g_usleep (lock_delay * 1000);
-	}
-
-	/* we failed to lock */
+	/* initially try to take all locks */
+	ret = zif_lock_take (priv->lock,
+			     ZIF_LOCK_TYPE_RPMDB_WRITE,
+			     &error);
 	if (!ret) {
 		pk_backend_error_code (backend,
 				       PK_ERROR_ENUM_CANNOT_GET_LOCK,
-				       "failed to get lock, held by PID: %i",
-				       pid);
+				       "failed to get rpmdb write lock");
+		goto out;
+	}
+	ret = zif_lock_take (priv->lock,
+			     ZIF_LOCK_TYPE_REPO_WRITE,
+			     &error);
+	if (!ret) {
+		pk_backend_error_code (backend,
+				       PK_ERROR_ENUM_CANNOT_GET_LOCK,
+				       "failed to get repo write lock");
+		goto out;
+	}
+	ret = zif_lock_take (priv->lock,
+			     ZIF_LOCK_TYPE_METADATA_WRITE,
+			     &error);
+	if (!ret) {
+		pk_backend_error_code (backend,
+				       PK_ERROR_ENUM_CANNOT_GET_LOCK,
+				       "failed to get metadata write lock");
 		goto out;
 	}
 
 	/* try to set, or re-set install root */
 	ret = zif_store_local_set_prefix (ZIF_STORE_LOCAL (priv->store_local),
-					  root,
+					  NULL,
 					  &error);
 	if (!ret) {
 		pk_backend_error_code (backend,
@@ -392,10 +383,28 @@ pk_backend_transaction_stop (PkBackend *backend)
 	gboolean ret;
 	GError *error = NULL;
 
-	/* try to unlock */
-	ret = zif_lock_set_unlocked (priv->lock, &error);
+	/* try to release all locks */
+	ret = zif_lock_release (priv->lock,
+				ZIF_LOCK_TYPE_RPMDB_WRITE,
+				&error);
 	if (!ret) {
-		g_warning ("failed to unlock: %s", error->message);
+		g_warning ("failed to release rpmdb write: %s", error->message);
+		g_error_free (error);
+		goto out;
+	}
+	ret = zif_lock_release (priv->lock,
+				ZIF_LOCK_TYPE_REPO_WRITE,
+				&error);
+	if (!ret) {
+		g_warning ("failed to release repo write: %s", error->message);
+		g_error_free (error);
+		goto out;
+	}
+	ret = zif_lock_release (priv->lock,
+				ZIF_LOCK_TYPE_METADATA_WRITE,
+				&error);
+	if (!ret) {
+		g_warning ("failed to release metadata write: %s", error->message);
 		g_error_free (error);
 		goto out;
 	}
@@ -3525,44 +3534,35 @@ pk_backend_get_update_detail_thread (PkBackend *backend)
 			gchar *changelog_text = NULL;
 			GPtrArray *array;
 			GPtrArray *changesets;
-			GString *string_cve;
-			GString *string_bugzilla;
-			GString *string_vendor;
+			GPtrArray *cve_urls;
+			GPtrArray *bugzilla_urls;
+			GPtrArray *vendor_urls;
 			ZifUpdateInfo *info;
 			array = zif_update_get_update_infos (update);
-			string_cve = g_string_new (NULL);
-			string_bugzilla = g_string_new (NULL);
-			string_vendor = g_string_new (NULL);
+			cve_urls = g_ptr_array_new ();
+			bugzilla_urls = g_ptr_array_new ();
+			vendor_urls = g_ptr_array_new ();
 			for (j=0; j<array->len; j++) {
 				info = g_ptr_array_index (array, j);
 				switch (zif_update_info_get_kind (info)) {
 				case ZIF_UPDATE_INFO_KIND_CVE:
-					g_string_append_printf (string_cve, "%s;%s;",
-								zif_update_info_get_url (info),
-								zif_update_info_get_title (info));
+					g_ptr_array_add (cve_urls, (gpointer) zif_update_info_get_url (info));
 					break;
 				case ZIF_UPDATE_INFO_KIND_BUGZILLA:
-					g_string_append_printf (string_bugzilla, "%s;%s;",
-								zif_update_info_get_url (info),
-								zif_update_info_get_title (info));
+					g_ptr_array_add (bugzilla_urls, (gpointer) zif_update_info_get_url (info));
 					break;
 				case ZIF_UPDATE_INFO_KIND_VENDOR:
-					g_string_append_printf (string_vendor, "%s;%s;",
-								zif_update_info_get_url (info),
-								zif_update_info_get_title (info));
+					g_ptr_array_add (vendor_urls, (gpointer) zif_update_info_get_url (info));
 					break;
 				default:
 					break;
 				}
 			}
 
-			/* remove trailing ';' */
-			if (string_cve->len > 0)
-				g_string_set_size (string_cve, string_cve->len - 1);
-			if (string_bugzilla->len > 0)
-				g_string_set_size (string_bugzilla, string_bugzilla->len - 1);
-			if (string_vendor->len > 0)
-				g_string_set_size (string_vendor, string_vendor->len - 1);
+			/* NULL terminate */
+			g_ptr_array_add (cve_urls, NULL);
+			g_ptr_array_add (bugzilla_urls, NULL);
+			g_ptr_array_add (vendor_urls, NULL);
 
 			/* format changelog */
 			changesets = zif_update_get_changelog (update);
@@ -3571,9 +3571,9 @@ pk_backend_get_update_detail_thread (PkBackend *backend)
 			pk_backend_update_detail (backend, package_ids[i],
 						  NULL, //updates,
 						  NULL, //obsoletes,
-						  string_vendor->str,
-						  string_bugzilla->str,
-						  string_cve->str,
+						  (gchar **) cve_urls->pdata,
+						  (gchar **) bugzilla_urls->pdata,
+						  (gchar **) vendor_urls->pdata,
 						  PK_RESTART_ENUM_NONE,
 						  zif_update_get_description (update),
 						  changelog_text,
@@ -3583,8 +3583,9 @@ pk_backend_get_update_detail_thread (PkBackend *backend)
 			if (changesets != NULL)
 				g_ptr_array_unref (changesets);
 			g_ptr_array_unref (array);
-			g_string_free (string_cve, TRUE);
-			g_string_free (string_bugzilla, TRUE);
+			g_ptr_array_unref (cve_urls);
+			g_ptr_array_unref (bugzilla_urls);
+			g_ptr_array_unref (vendor_urls);
 			g_free (changelog_text);
 		}
 
