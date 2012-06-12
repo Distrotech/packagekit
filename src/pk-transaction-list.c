@@ -476,7 +476,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 	results = pk_transaction_get_results (item->transaction);
 	error = pk_results_get_error_code (results);
 
-	if (pk_error_get_code (error) == PK_ERROR_ENUM_LOCK_REQUIRED) {
+	if ((error != NULL) && (pk_error_get_code (error) == PK_ERROR_ENUM_LOCK_REQUIRED)) {
 		pk_transaction_reset_after_lock_error (item->transaction);
 
 		/* increase the number of tries */
@@ -898,10 +898,6 @@ pk_transaction_list_get_state (PkTransactionList *tlist)
 					item->background);
 	}
 
-	/* more than one running */
-	if (running > 1)
-		g_string_append_printf (string, "ERROR: %i are running\n", running);
-
 	/* nothing running */
 	if (waiting == length)
 		g_string_append_printf (string, "WARNING: everything is waiting!\n");
@@ -978,9 +974,8 @@ pk_transaction_list_is_consistent (PkTransactionList *tlist)
 		g_debug ("%i have not been committed and may be pending auth", no_commit);
 
 	/* more than one running */
-	if (running > 1) {
-		g_warning ("%i are running", running);
-		ret = FALSE;
+	if (running > 0) {
+		g_debug ("%i are running", running);
 	}
 
 	/* nothing running */
