@@ -121,6 +121,7 @@ struct PkBackendPrivate
 	guint			 signal_error_timeout;
 	guint			 signal_finished;
 	guint			 speed;
+	guint64			 download_size_remaining;
 	GHashTable		*eulas;
 	GModule			*handle;
 	GThread			*thread;
@@ -151,7 +152,6 @@ G_DEFINE_TYPE (PkBackend, pk_backend, G_TYPE_OBJECT)
 enum {
 	SIGNAL_ALLOW_CANCEL,
 	SIGNAL_LOCKED_CHANGED,
-	SIGNAL_CHANGE_TRANSACTION_DATA,
 	SIGNAL_STATUS_CHANGED,
 	SIGNAL_ITEM_PROGRESS,
 	SIGNAL_FINISHED,
@@ -166,6 +166,7 @@ enum {
 	PROP_ROLE,
 	PROP_TRANSACTION_ID,
 	PROP_SPEED,
+	PROP_DOWNLOAD_SIZE_REMAINING,
 	PROP_PERCENTAGE,
 	PROP_REMAINING,
 	PROP_UID,
@@ -192,8 +193,10 @@ pk_backend_get_groups (PkBackend *backend)
 
 /**
  * pk_backend_get_mime_types:
+ *
+ * Returns: (transfer full):
  **/
-gchar *
+gchar **
 pk_backend_get_mime_types (PkBackend *backend)
 {
 	g_return_val_if_fail (PK_IS_BACKEND (backend), NULL);
@@ -201,7 +204,7 @@ pk_backend_get_mime_types (PkBackend *backend)
 
 	/* not compulsory */
 	if (backend->priv->desc->get_mime_types == NULL)
-		return g_strdup ("");
+		return g_new0 (gchar *, 1);
 	return backend->priv->desc->get_mime_types (backend);
 }
 
@@ -818,8 +821,14 @@ pk_backend_call_vfunc_idle_cb (gpointer user_data)
 
 	/* call transaction vfunc on main thread */
 	item = &helper->backend->priv->vfunc_items[helper->signal_kind];
-	item->vfunc (helper->backend, helper->object, item->user_data);
-	g_free (helper);
+	if (item != NULL) {
+		item->vfunc (helper->backend,
+			     helper->object,
+			     item->user_data);
+	} else {
+		g_warning ("tried to do signal %i when no longer connected",
+			   helper->signal_kind);
+	}
 	return FALSE;
 }
 
@@ -842,12 +851,23 @@ pk_backend_call_vfunc (PkBackend *backend,
 	if (!item->enabled || item->vfunc == NULL)
 		return;
 
+	/* if we're in the main thread already, don't bother with the
+	 * idle add and do the vfunc now */
+	if (backend->priv->thread == NULL ||
+	    g_thread_self () == backend->priv->thread) {
+		item->vfunc (backend, object, item->user_data);
+		return;
+	}
+
 	/* emit idle, TODO: do we ever need to cancel this? */
 	helper = g_new0 (PkBackendVFuncHelper, 1);
 	helper->backend = backend;
 	helper->signal_kind = signal_kind;
 	helper->object = object;
-	g_idle_add (pk_backend_call_vfunc_idle_cb, helper);
+	g_idle_add_full (G_PRIORITY_HIGH_IDLE,
+			 pk_backend_call_vfunc_idle_cb,
+			 helper,
+			 g_free);
 }
 
 /**
@@ -936,6 +956,35 @@ pk_backend_set_speed (PkBackend *backend, guint speed)
 	/* set new value */
 	backend->priv->speed = speed;
 	g_object_notify (G_OBJECT (backend), "speed");
+	return TRUE;
+}
+
+/**
+ * pk_backend_set_download_size_remaining:
+ **/
+gboolean
+pk_backend_set_download_size_remaining (PkBackend *backend, guint64 download_size_remaining)
+{
+	g_return_val_if_fail (PK_IS_BACKEND (backend), FALSE);
+	g_return_val_if_fail (backend->priv->loaded, FALSE);
+
+	/* have we already set an error? */
+	if (backend->priv->set_error) {
+		// TODO find out how to print the number
+		g_warning ("already set error, cannot process: download-size-remaining");
+		return FALSE;
+	}
+
+	/* set the same twice? */
+	if (backend->priv->download_size_remaining == download_size_remaining) {
+		// TODO find out how to print the number
+		g_debug ("duplicate set of download_size_remaining");
+		return FALSE;
+	}
+
+	/* set new value */
+	backend->priv->download_size_remaining = download_size_remaining;
+	g_object_notify (G_OBJECT (backend), "download-size-remaining");
 	return TRUE;
 }
 
@@ -1407,26 +1456,6 @@ out:
 	if (item != NULL)
 		g_object_unref (item);
 	return ret;
-}
-
-/**
- * pk_backend_set_transaction_data:
- **/
-gboolean
-pk_backend_set_transaction_data (PkBackend *backend, const gchar *data)
-{
-	g_return_val_if_fail (PK_IS_BACKEND (backend), FALSE);
-	g_return_val_if_fail (backend->priv->loaded, FALSE);
-
-	/* have we already set an error? */
-	if (backend->priv->set_error) {
-		g_warning ("already set error, cannot process");
-		return FALSE;
-	}
-
-	/* emit */
-	g_signal_emit (backend, signals[SIGNAL_CHANGE_TRANSACTION_DATA], 0, data);
-	return TRUE;
 }
 
 /**
@@ -2380,10 +2409,10 @@ pk_backend_finished_delay (gpointer data)
 }
 
 /**
- * pk_backend_finished:
+ * pk_backend_finished_real:
  **/
-gboolean
-pk_backend_finished (PkBackend *backend)
+static gboolean
+pk_backend_finished_real (PkBackend *backend)
 {
 	const gchar *role_text;
 
@@ -2414,10 +2443,6 @@ pk_backend_finished (PkBackend *backend)
 		g_warning ("already finished");
 		return FALSE;
 	}
-
-	/* ensure threaded backends get stop vfuncs fired */
-	if (backend->priv->thread != NULL)
-		pk_backend_transaction_stop (backend);
 
 	/* check we got a Package() else the UI will suck */
 	if (!backend->priv->set_error &&
@@ -2473,24 +2498,31 @@ pk_backend_finished (PkBackend *backend)
 }
 
 /**
- * pk_backend_thread_finished_cb:
+ * pk_backend_finished_cb:
  **/
 static gboolean
-pk_backend_thread_finished_cb (PkBackend *backend)
+pk_backend_finished_cb (PkBackend *backend)
 {
-	pk_backend_finished (backend);
+	pk_backend_finished_real (backend);
 	return FALSE;
 }
 
 /**
- * pk_backend_thread_finished:
+ * pk_backend_finished:
  **/
 void
-pk_backend_thread_finished (PkBackend *backend)
+pk_backend_finished (PkBackend *backend)
 {
 	guint idle_id;
-	idle_id = g_idle_add ((GSourceFunc) pk_backend_thread_finished_cb, backend);
-	g_source_set_name_by_id (idle_id, "[PkBackend] finished");
+
+	/* we in the helper thread */
+	if (g_thread_self () == backend->priv->thread) {
+		pk_backend_transaction_stop (backend);
+		idle_id = g_idle_add ((GSourceFunc) pk_backend_finished_cb, backend);
+		g_source_set_name_by_id (idle_id, "[PkBackend] finished");
+	} else {
+		pk_backend_finished_real (backend);
+	}
 }
 
 /**
@@ -2848,6 +2880,9 @@ pk_backend_get_property (GObject *object, guint prop_id, GValue *value, GParamSp
 	case PROP_SPEED:
 		g_value_set_uint (value, priv->speed);
 		break;
+	case PROP_DOWNLOAD_SIZE_REMAINING:
+		g_value_set_uint64 (value, priv->download_size_remaining);
+		break;
 	case PROP_PERCENTAGE:
 		g_value_set_uint (value, priv->percentage);
 		break;
@@ -2895,6 +2930,9 @@ pk_backend_set_property (GObject *object, guint prop_id, const GValue *value, GP
 		break;
 	case PROP_SPEED:
 		priv->speed = g_value_get_uint (value);
+		break;
+	case PROP_DOWNLOAD_SIZE_REMAINING:
+		priv->download_size_remaining = g_value_get_uint64 (value);
 		break;
 	case PROP_PERCENTAGE:
 		priv->percentage = g_value_get_uint (value);
@@ -3003,6 +3041,14 @@ pk_backend_class_init (PkBackendClass *klass)
 				   0, G_MAXUINT, 0,
 				   G_PARAM_READWRITE);
 	g_object_class_install_property (object_class, PROP_SPEED, pspec);
+	
+	/**
+	 * PkBackend:download-size-remaining:
+	 */
+	pspec = g_param_spec_uint64 ("download-size-remaining", NULL, NULL,
+				   0, G_MAXUINT64, 0,
+				   G_PARAM_READWRITE);
+	g_object_class_install_property (object_class, PROP_DOWNLOAD_SIZE_REMAINING, pspec);
 
 	/**
 	 * PkBackend:percentage:
@@ -3043,11 +3089,6 @@ pk_backend_class_init (PkBackendClass *klass)
 			      G_TYPE_FROM_CLASS (object_class), G_SIGNAL_RUN_LAST,
 			      0, NULL, NULL, g_cclosure_marshal_VOID__UINT,
 			      G_TYPE_NONE, 1, G_TYPE_UINT);
-	signals[SIGNAL_CHANGE_TRANSACTION_DATA] =
-		g_signal_new ("change-transaction-data",
-			      G_TYPE_FROM_CLASS (object_class), G_SIGNAL_RUN_LAST,
-			      0, NULL, NULL, g_cclosure_marshal_VOID__STRING,
-			      G_TYPE_NONE, 1, G_TYPE_STRING);
 	signals[SIGNAL_FINISHED] =
 		g_signal_new ("finished",
 			      G_TYPE_FROM_CLASS (object_class), G_SIGNAL_RUN_LAST,

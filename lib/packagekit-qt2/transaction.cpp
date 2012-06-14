@@ -25,13 +25,12 @@
 
 #include "daemon.h"
 #include "common.h"
-#include "util.h"
 #include "signature.h"
 #include "package.h"
 
 #define CHECK_TRANSACTION                           \
         if (r.isError()) {                          \
-            d->error = Util::errorFromString(r.error().name()); \
+            d->error = Transaction::parseError(r.error().name()); \
         }                                           \
 
 #define RUN_TRANSACTION(blurb)                      \
@@ -68,6 +67,7 @@ void Transaction::init(const QDBusObjectPath &tid)
     // he want us to get it
     if (tid.path().isNull()) {
         d->tid = Daemon::global()->getTid();
+        qDebug() << "packagekit-qt:" << d->tid.path();
     }
 
     int retry = 0;
@@ -97,8 +97,10 @@ void Transaction::init(const QDBusObjectPath &tid)
         d->error = Transaction::InternalErrorDaemonUnreachable;
         return;
     } else {
-        d->error = Transaction::NoInternalError;
-        setHints(Daemon::hints());
+        d->error = Transaction::InternalErrorNone;
+        if (!Daemon::hints().isEmpty()) {
+            setHints(Daemon::hints());
+        }
     }
 
     connect(Daemon::global(), SIGNAL(daemonQuit()), SLOT(daemonQuit()));
@@ -115,8 +117,8 @@ void Transaction::init(const QDBusObjectPath &tid)
             SLOT(distroUpgrade(uint,QString,QString)));
     connect(d->p, SIGNAL(ErrorCode(uint,QString)),
             SLOT(errorCode(uint,QString)));
-    connect(d->p, SIGNAL(Files(QString,QString)),
-            SLOT(files(QString,QString)));
+    connect(d->p, SIGNAL(Files(QString,QStringList)),
+            SLOT(files(QString,QStringList)));
     connect(d->p, SIGNAL(Finished(uint,uint)),
             SLOT(finished(uint,uint)));
     connect(d->p, SIGNAL(Message(uint,QString)),
@@ -137,8 +139,8 @@ void Transaction::init(const QDBusObjectPath &tid)
             SLOT(requireRestart(uint,QString)));
     connect(d->p, SIGNAL(Transaction(QDBusObjectPath,QString,bool,uint,uint,QString,uint,QString)),
             SLOT(transaction(QDBusObjectPath,QString,bool,uint,uint,QString,uint,QString)));
-    connect(d->p, SIGNAL(UpdateDetail(QString,QString,QString,QString,QString,QString, uint,QString,QString,uint,QString,QString)),
-            SLOT(updateDetail(QString,QString,QString,QString,QString,QString, uint,QString,QString,uint,QString,QString)));
+    connect(d->p, SIGNAL(UpdateDetail(QString,QStringList,QStringList,QStringList,QStringList,QStringList, uint,QString,QString,uint,QString,QString)),
+            SLOT(updateDetail(QString,QStringList,QStringList,QStringList,QStringList,QStringList, uint,QString,QString,uint,QString,QString)));
 
 }
 
@@ -164,7 +166,7 @@ Transaction::Transaction(const QDBusObjectPath &tid,
     d->data = data;
     d->uid = uid;
     d->cmdline = cmdline;
-    d->error = NoInternalError;
+    d->error = InternalErrorNone;
     d->destroyed = true;
 }
 
@@ -214,7 +216,7 @@ void Transaction::cancel()
 
     QDBusReply<void> r = d->p->Cancel();
     if (!r.isValid()) {
-        d->error = Util::errorFromString(r.error().message());
+        d->error = Transaction::parseError(r.error().message());
     }
 }
 
@@ -263,17 +265,29 @@ uint Transaction::speed() const
     return d->p->speed();
 }
 
+qulonglong Transaction::downloadSizeRemaining() const
+{
+    Q_D(const Transaction);
+    if (d->destroyed) {
+        return 0;
+    }
+    return d->p->downloadSizeRemaining();
+}    
+
 Transaction::Role Transaction::role() const
 {
     Q_D(const Transaction);
     if(d->oldtrans) {
-        return d->role;
+        uint role = 1 << d->role;
+        return static_cast<Transaction::Role>(role);
     }
 
     if (d->destroyed) {
         return Transaction::RoleUnknown;
     }
-    return static_cast<Transaction::Role>(d->p->role());
+
+    uint role = 1 << d->p->role();
+    return static_cast<Transaction::Role>(role);
 }
 
 void Transaction::setHints(const QStringList &hints)
@@ -342,14 +356,14 @@ void Transaction::acceptEula(const QString &eulaId)
     RUN_TRANSACTION(AcceptEula(eulaId))
 }
 
-void Transaction::downloadPackages(const QList<Package> &packages, bool storeInCache)
+void Transaction::downloadPackages(const PackageList &packages, bool storeInCache)
 {
-    RUN_TRANSACTION(DownloadPackages(storeInCache, Util::packageListToPids(packages)))
+    RUN_TRANSACTION(DownloadPackages(storeInCache, d->packageListToPids(packages)))
 }
 
 void Transaction::downloadPackage(const Package &package, bool storeInCache)
 {
-    downloadPackages(QList<Package>() << package, storeInCache);
+    downloadPackages(PackageList() << package, storeInCache);
 }
 
 void Transaction::getCategories()
@@ -357,34 +371,34 @@ void Transaction::getCategories()
     RUN_TRANSACTION(GetCategories())
 }
 
-void Transaction::getDepends(const QList<Package> &packages, Transaction::Filters filters, bool recursive)
+void Transaction::getDepends(const PackageList &packages, Transaction::Filters filters, bool recursive)
 {
-    RUN_TRANSACTION(GetDepends(filters, Util::packageListToPids(packages), recursive))
+    RUN_TRANSACTION(GetDepends(filters, d->packageListToPids(packages), recursive))
 }
 
 void Transaction::getDepends(const Package &package, Transaction::Filters filters, bool recursive)
 {
-    getDepends(QList<Package>() << package, filters, recursive);
+    getDepends(PackageList() << package, filters, recursive);
 }
 
-void Transaction::getDetails(const QList<Package> &packages)
+void Transaction::getDetails(const PackageList &packages)
 {
-    RUN_TRANSACTION(GetDetails(Util::packageListToPids(packages)))
+    RUN_TRANSACTION(GetDetails(d->packageListToPids(packages)))
 }
 
 void Transaction::getDetails(const Package &package)
 {
-    getDetails(QList<Package>() << package);
+    getDetails(PackageList() << package);
 }
 
-void Transaction::getFiles(const QList<Package> &packages)
+void Transaction::getFiles(const PackageList &packages)
 {
-    RUN_TRANSACTION(GetFiles(Util::packageListToPids(packages)))
+    RUN_TRANSACTION(GetFiles(d->packageListToPids(packages)))
 }
 
 void Transaction::getFiles(const Package &package)
 {
-    getFiles(QList<Package>() << package);
+    getFiles(PackageList() << package);
 }
 
 void Transaction::getOldTransactions(uint number)
@@ -402,24 +416,24 @@ void Transaction::getRepoList(Transaction::Filters filters)
     RUN_TRANSACTION(GetRepoList(filters))
 }
 
-void Transaction::getRequires(const QList<Package> &packages, Transaction::Filters filters, bool recursive)
+void Transaction::getRequires(const PackageList &packages, Transaction::Filters filters, bool recursive)
 {
-    RUN_TRANSACTION(GetRequires(filters, Util::packageListToPids(packages), recursive))
+    RUN_TRANSACTION(GetRequires(filters, d->packageListToPids(packages), recursive))
 }
 
 void Transaction::getRequires(const Package &package, Transaction::Filters filters, bool recursive)
 {
-    getRequires(QList<Package>() << package, filters, recursive);
+    getRequires(PackageList() << package, filters, recursive);
 }
 
-void Transaction::getUpdatesDetails(const QList<Package> &packages)
+void Transaction::getUpdatesDetails(const PackageList &packages)
 {
-    RUN_TRANSACTION(GetUpdateDetail(Util::packageListToPids(packages)))
+    RUN_TRANSACTION(GetUpdateDetail(d->packageListToPids(packages)))
 }
 
 void Transaction::getUpdateDetail(const Package &package)
 {
-    getUpdatesDetails(QList<Package>() << package);
+    getUpdatesDetails(PackageList() << package);
 }
 
 void Transaction::getUpdates(Transaction::Filters filters)
@@ -442,14 +456,14 @@ void Transaction::installFile(const QString &file, TransactionFlags flags)
     installFiles(QStringList() << file, flags);
 }
 
-void Transaction::installPackages(const QList<Package> &packages, TransactionFlags flags)
+void Transaction::installPackages(const PackageList &packages, TransactionFlags flags)
 {
-    RUN_TRANSACTION(InstallPackages(flags, Util::packageListToPids(packages)))
+    RUN_TRANSACTION(InstallPackages(flags, d->packageListToPids(packages)))
 }
 
 void Transaction::installPackage(const Package &package, TransactionFlags flags)
 {
-    installPackages(QList<Package>() << package, flags);
+    installPackages(PackageList() << package, flags);
 }
 
 void Transaction::installSignature(const Signature &sig)
@@ -464,14 +478,14 @@ void Transaction::refreshCache(bool force)
     RUN_TRANSACTION(RefreshCache(force))
 }
 
-void Transaction::removePackages(const QList<Package> &packages, bool allowDeps, bool autoremove, TransactionFlags flags)
+void Transaction::removePackages(const PackageList &packages, bool allowDeps, bool autoremove, TransactionFlags flags)
 {
-    RUN_TRANSACTION(RemovePackages(flags, Util::packageListToPids(packages), allowDeps, autoremove))
+    RUN_TRANSACTION(RemovePackages(flags, d->packageListToPids(packages), allowDeps, autoremove))
 }
 
 void Transaction::removePackage(const Package &package, bool allowDeps, bool autoremove, TransactionFlags flags)
 {
-    removePackages(QList<Package>() << package, allowDeps, autoremove, flags);
+    removePackages(PackageList() << package, allowDeps, autoremove, flags);
 }
 
 void Transaction::repairSystem(TransactionFlags flags)
@@ -529,19 +543,9 @@ void Transaction::searchGroup(const QString &group, Transaction::Filters filters
     searchGroups(QStringList() << group, filters);
 }
 
-void Transaction::searchGroups(Package::Groups groups, Transaction::Filters filters)
+void Transaction::searchGroups(PackageDetails::Groups groups, Transaction::Filters filters)
 {
-    QStringList groupsSL;
-    foreach (const Package::Group &group, groups) {
-        groupsSL << Util::enumToString<Package>(group, "Group", "Group");
-    }
-
-    searchGroups(groupsSL, filters);
-}
-
-void Transaction::searchGroup(Package::Group group, Transaction::Filters filters)
-{
-    searchGroups(Package::Groups() << group, filters);
+    searchGroups(groups, filters);
 }
 
 void Transaction::searchNames(const QStringList &search, Transaction::Filters filters)
@@ -554,14 +558,14 @@ void Transaction::searchNames(const QString &search, Transaction::Filters filter
     searchNames(QStringList() << search, filters);
 }
 
-void Transaction::updatePackages(const QList<Package> &packages, TransactionFlags flags)
+void Transaction::updatePackages(const PackageList &packages, TransactionFlags flags)
 {
-    RUN_TRANSACTION(UpdatePackages(flags, Util::packageListToPids(packages)))
+    RUN_TRANSACTION(UpdatePackages(flags, d->packageListToPids(packages)))
 }
 
 void Transaction::updatePackage(const Package &package, TransactionFlags flags)
 {
-    updatePackages(QList<Package>() << package, flags);
+    updatePackages(PackageList() << package, flags);
 }
 
 void Transaction::updateSystem(bool onlyTrusted)
@@ -582,6 +586,41 @@ void Transaction::whatProvides(Transaction::Provides type, const QStringList &se
 void Transaction::whatProvides(Transaction::Provides type, const QString &search, Transaction::Filters filters)
 {
     whatProvides(type, QStringList() << search, filters);
+}
+
+Transaction::InternalError Transaction::parseError(const QString &errorName)
+{
+    QString error = errorName;
+    if (error.startsWith(QLatin1String("org.freedesktop.packagekit."))) {
+        return Transaction::InternalErrorFailedAuth;
+    }
+    
+    error.remove(QLatin1String("org.freedesktop.PackageKit.Transaction."));
+    
+    if (error.startsWith(QLatin1String("PermissionDenied")) ||
+        error.startsWith(QLatin1String("RefusedByPolicy"))) {
+        return Transaction::InternalErrorFailedAuth;
+    }
+
+    if (error.startsWith(QLatin1String("PackageIdInvalid")) ||
+        error.startsWith(QLatin1String("SearchInvalid")) ||
+        error.startsWith(QLatin1String("FilterInvalid")) ||
+        error.startsWith(QLatin1String("InvalidProvide")) ||
+        error.startsWith(QLatin1String("InputInvalid"))) {
+        return Transaction::InternalErrorInvalidInput;
+    }
+
+    if (error.startsWith(QLatin1String("PackInvalid")) ||
+        error.startsWith(QLatin1String("NoSuchFile")) ||
+        error.startsWith(QLatin1String("NoSuchDirectory"))) {
+        return Transaction::InternalErrorInvalidFile;
+    }
+
+    if (error.startsWith(QLatin1String("NotSupported"))) {
+        return Transaction::InternalErrorFunctionNotSupported;
+    }
+
+    return Transaction::InternalErrorFailed;
 }
 
 #include "transaction.moc"

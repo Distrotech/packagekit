@@ -83,6 +83,7 @@ struct PkTransactionPrivate
 	guint			 elapsed_time;
 	guint			 remaining_time;
 	guint			 speed;
+	guint			 download_size_remaining;
 	gboolean		 finished;
 	gboolean		 allow_cancel;
 	gboolean		 waiting_for_auth;
@@ -147,6 +148,7 @@ struct PkTransactionPrivate
 	guint			 signal_remaining;
 	guint			 signal_status_changed;
 	guint			 signal_speed;
+	guint			 signal_download_size_remaining;
 	guint			 signal_item_progress;
 	GPtrArray		*plugins;
 	GPtrArray		*supported_content_types;
@@ -1004,18 +1006,14 @@ static void
 pk_transaction_setup_mime_types (PkTransaction *transaction)
 {
 	guint i;
-	gchar *mime_types_str;
 	gchar **mime_types;
 
 	/* get list of mime types supported by backends */
-	mime_types_str = pk_backend_get_mime_types (transaction->priv->backend);
-	mime_types = g_strsplit (mime_types_str, ";", -1);
-	for (i=0; mime_types[i] != NULL; i++) {
+	mime_types = pk_backend_get_mime_types (transaction->priv->backend);
+	for (i = 0; mime_types[i] != NULL; i++) {
 		g_ptr_array_add (transaction->priv->supported_content_types,
 				 g_strdup (mime_types[i]));
 	}
-
-	g_free (mime_types_str);
 	g_strfreev (mime_types);
 }
 
@@ -1039,6 +1037,10 @@ pk_transaction_set_backend (PkTransaction *transaction,
 			    PkBackend *backend)
 {
 	/* save a reference */
+	if (transaction->priv->signal_locked_changed != 0) {
+		g_signal_handler_disconnect (transaction->priv->backend,
+					     transaction->priv->signal_locked_changed);
+	}
 	if (transaction->priv->backend != NULL)
 		g_object_unref (transaction->priv->backend);
 	transaction->priv->backend = g_object_ref (backend);
@@ -1968,6 +1970,24 @@ pk_transaction_speed_cb (GObject *object,
 }
 
 /**
+ * pk_transaction_speed_cb:
+ **/
+static void
+pk_transaction_download_size_remaining_cb (GObject *object,
+					   GParamSpec *pspec,
+					   PkTransaction *transaction)
+{
+	g_object_get (object,
+		      "download-size-remaining", &transaction->priv->download_size_remaining,
+		      NULL);
+	/* emit */
+	pk_transaction_emit_property_changed (transaction,
+					      "DownloadSizeRemaining",
+					      g_variant_new_uint64 (transaction->priv->download_size_remaining));
+	pk_transaction_emit_changed (transaction);
+}
+
+/**
  * pk_transaction_percentage_cb:
  **/
 static void
@@ -2161,6 +2181,19 @@ pk_transaction_set_signals (PkTransaction *transaction, PkBitfield backend_signa
 			g_signal_handler_disconnect (priv->backend,
 					priv->signal_speed);
 			priv->signal_speed = 0;
+		}
+	}
+
+	if (pk_bitfield_contain (backend_signals, PK_BACKEND_SIGNAL_NOTIFY_DOWNLOAD_SIZE_REMAINING)) {
+		if (priv->signal_download_size_remaining == 0)
+			priv->signal_download_size_remaining =
+				g_signal_connect (priv->backend, "notify::download-size-remaining",
+						G_CALLBACK (pk_transaction_download_size_remaining_cb), transaction);
+	} else {
+		if (priv->signal_download_size_remaining > 0) {
+			g_signal_handler_disconnect (priv->backend,
+					priv->signal_download_size_remaining);
+			priv->signal_download_size_remaining = 0;
 		}
 	}
 
@@ -5400,6 +5433,10 @@ pk_transaction_get_property (GDBusConnection *connection_, const gchar *sender,
 	}
 	if (g_strcmp0 (property_name, "Speed") == 0) {
 		retval = g_variant_new_uint32 (priv->speed);
+		goto out;
+	}
+	if (g_strcmp0 (property_name, "DownloadSizeRemaining") == 0) {
+		retval = g_variant_new_uint32 (priv->download_size_remaining);
 		goto out;
 	}
 out:

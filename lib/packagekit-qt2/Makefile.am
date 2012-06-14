@@ -16,7 +16,6 @@ INCLUDES = \
 METASOURCES = AUTO
 
 MOCFILES =							\
-	package.moc						\
 	signature.moc						\
 	daemon.moc						\
 	daemonproxy.moc						\
@@ -35,13 +34,16 @@ libpackagekit_qt2_include_HEADERS =				\
 	signature.h						\
 	Eula							\
 	eula.h							\
-	Package							\
 	Transaction						\
 	Daemon							\
 	daemon.h						\
 	transaction.h						\
+	Package							\
 	package.h						\
-	bitfield.h						\
+	PackageDetails						\
+	packagedetails.h					\
+	PackageUpdateDetails					\
+	packageupdatedetails.h					\
 	$(NULL)
 
 libpackagekit_qt2_la_SOURCES =					\
@@ -51,6 +53,10 @@ libpackagekit_qt2_la_SOURCES =					\
 	eula.cpp						\
 	package.h						\
 	package.cpp						\
+	packagedetails.h					\
+	packagedetails.cpp					\
+	packageupdatedetails.h					\
+	packageupdatedetails.cpp				\
 	transactionproxy.h					\
 	transactionproxy.cpp					\
 	transactionprivate.h					\
@@ -63,10 +69,6 @@ libpackagekit_qt2_la_SOURCES =					\
 	daemonproxy.cpp						\
 	daemon.h						\
 	daemon.cpp						\
-	util.h							\
-	util.cpp						\
-	bitfield.h						\
-	bitfield.cpp						\
 	common.h						\
 	dbus_proxies.stamp					\
 	$(NULL)

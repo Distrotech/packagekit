@@ -40,29 +40,9 @@ protected:
 
     Daemon *q_ptr;
     ::DaemonProxy *daemon;
-
     QStringList hints;
 
     QList<Transaction*> transactions(const QList<QDBusObjectPath> &tids, QObject *parent);
-
-    /*
-     * Describes the different errors that might happen on the bus
-     *
-     * \sa Daemon::error
-     * \sa Transaction::error
-     */
-    typedef enum {
-        NoError = 0,
-        ErrorFailed,
-        ErrorFailedAuth,
-        ErrorNoTid,
-        ErrorAlreadyTid,
-        ErrorRoleUnkown,
-        ErrorCannotStartDaemon,
-        ErrorInvalidInput,
-        ErrorInvalidFile,
-        ErrorNotSupported
-    } TransactionError;
 
 protected Q_SLOTS:
     void serviceUnregistered();

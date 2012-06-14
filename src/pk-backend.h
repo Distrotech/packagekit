@@ -79,6 +79,7 @@ typedef enum {
 	PK_BACKEND_SIGNAL_NOTIFY_PERCENTAGE,
 	PK_BACKEND_SIGNAL_NOTIFY_REMAINING,
 	PK_BACKEND_SIGNAL_NOTIFY_SPEED,
+	PK_BACKEND_SIGNAL_NOTIFY_DOWNLOAD_SIZE_REMAINING,
 	PK_BACKEND_SIGNAL_REPO_DETAIL,
 	PK_BACKEND_SIGNAL_REPO_SIGNATURE_REQUIRED,
 	PK_BACKEND_SIGNAL_EULA_REQUIRED,
@@ -122,7 +123,7 @@ typedef gchar	*(*PkBackendGetCompatStringFunc)	(PkBackend	*backend);
 PkBitfield	 pk_backend_get_groups			(PkBackend	*backend);
 PkBitfield	 pk_backend_get_filters			(PkBackend	*backend);
 PkBitfield	 pk_backend_get_roles			(PkBackend	*backend);
-gchar		*pk_backend_get_mime_types		(PkBackend	*backend);
+gchar		**pk_backend_get_mime_types		(PkBackend	*backend);
 gboolean	 pk_backend_has_set_error_code		(PkBackend	*backend);
 gboolean	 pk_backend_is_implemented		(PkBackend	*backend,
 							 PkRoleEnum	 role);
@@ -234,10 +235,10 @@ gboolean	 pk_backend_set_item_progress		(PkBackend	*backend,
 							 guint		 percentage);
 gboolean	 pk_backend_set_speed			(PkBackend	*backend,
 							 guint		 speed);
+gboolean	 pk_backend_set_download_size_remaining	(PkBackend	*backend,
+							 guint64	 download_size_remaining);
 gboolean	 pk_backend_set_exit_code		(PkBackend	*backend,
 							 PkExitEnum	 exit);
-gboolean	 pk_backend_set_transaction_data	(PkBackend	*backend,
-							 const gchar	*data);
 gboolean	 pk_backend_set_simultaneous_mode	(PkBackend	*backend,
 							 gboolean	 simultaneous);
 gboolean	 pk_backend_set_locked			(PkBackend	*backend,
@@ -274,7 +275,7 @@ void		 pk_backend_set_vfunc			(PkBackend	*backend,
 							 gpointer	 user_data);
 
 /* signal helpers */
-gboolean	 pk_backend_finished			(PkBackend	*backend);
+void		 pk_backend_finished			(PkBackend	*backend);
 gboolean	 pk_backend_package			(PkBackend	*backend,
 							 PkInfoEnum	 info,
 							 const gchar	*package_id,
@@ -386,7 +387,6 @@ gboolean	 pk_backend_not_implemented_yet		(PkBackend	*backend,
 typedef gboolean (*PkBackendThreadFunc)			(PkBackend	*backend);
 gboolean	 pk_backend_thread_create		(PkBackend	*backend,
 							 PkBackendThreadFunc func);
-void		 pk_backend_thread_finished		(PkBackend	*backend);
 
 gboolean	 pk_backend_is_online			(PkBackend	*backend);
 gboolean	 pk_backend_use_background		(PkBackend	*backend);
@@ -410,7 +410,7 @@ typedef struct {
 	PkBitfield	(*get_groups)			(PkBackend	*backend);
 	PkBitfield	(*get_filters)			(PkBackend	*backend);
 	PkBitfield	(*get_roles)			(PkBackend	*backend);
-	gchar		*(*get_mime_types)		(PkBackend	*backend);
+	gchar		**(*get_mime_types)		(PkBackend	*backend);
 	void		(*cancel)			(PkBackend	*backend);
 	void		(*download_packages)		(PkBackend	*backend,
 							 gchar		**package_ids,

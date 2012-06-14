@@ -25,8 +25,9 @@
 #include <QtCore/QObject>
 #include <QtDBus/QDBusObjectPath>
 
-#include "bitfield.h"
 #include "package.h"
+#include "packagedetails.h"
+#include "packageupdatedetails.h"
 
 namespace PackageKit {
 
@@ -70,7 +71,7 @@ public:
      * \sa Transaction::error
      */
     typedef enum {
-        NoInternalError = 0,
+        InternalErrorNone = 0,
         InternalErrorUnkown,
         InternalErrorFailed,
         InternalErrorFailedAuth,
@@ -87,40 +88,40 @@ public:
     /**
      * Describes the role of the transaction
      */
-    typedef enum {
-        RoleUnknown,
-        RoleCancel,
-        RoleGetDepends,
-        RoleGetDetails,
-        RoleGetFiles,
-        RoleGetPackages,
-        RoleGetRepoList,
-        RoleGetRequires,
-        RoleGetUpdateDetail,
-        RoleGetUpdates,
-        RoleInstallFiles,
-        RoleInstallPackages,
-        RoleInstallSignature,
-        RoleRefreshCache,
-        RoleRemovePackages,
-        RoleRepoEnable,
-        RoleRepoSetData,
-        RoleResolve,
-        RoleSearchDetails,
-        RoleSearchFile,
-        RoleSearchGroup,
-        RoleSearchName,
-        RoleUpdatePackages,
-        RoleUpdateSystem,
-        RoleWhatProvides,
-        RoleAcceptEula,
-        RoleDownloadPackages,
-        RoleGetDistroUpgrades,
-        RoleGetCategories,
-        RoleGetOldTransactions,
-        RoleUpgradeSystem, // Since 0.6.11
-        RoleRepairSystem // Since 0.7.2
-    } Role;
+    enum Role {
+        RoleUnknown            = 1 << 0,
+        RoleCancel             = 1 << 1,
+        RoleGetDepends         = 1 << 2,
+        RoleGetDetails         = 1 << 3,
+        RoleGetFiles           = 1 << 4,
+        RoleGetPackages        = 1 << 5,
+        RoleGetRepoList        = 1 << 6,
+        RoleGetRequires        = 1 << 7,
+        RoleGetUpdateDetail    = 1 << 8,
+        RoleGetUpdates         = 1 << 9,
+        RoleInstallFiles       = 1 << 10,
+        RoleInstallPackages    = 1 << 11,
+        RoleInstallSignature   = 1 << 12,
+        RoleRefreshCache       = 1 << 13,
+        RoleRemovePackages     = 1 << 14,
+        RoleRepoEnable         = 1 << 15,
+        RoleRepoSetData        = 1 << 16,
+        RoleResolve            = 1 << 17,
+        RoleSearchDetails      = 1 << 18,
+        RoleSearchFile         = 1 << 19,
+        RoleSearchGroup        = 1 << 20,
+        RoleSearchName         = 1 << 21,
+        RoleUpdatePackages     = 1 << 22,
+        RoleUpdateSystem       = 1 << 23,
+        RoleWhatProvides       = 1 << 24,
+        RoleAcceptEula         = 1 << 25,
+        RoleDownloadPackages   = 1 << 26,
+        RoleGetDistroUpgrades  = 1 << 27,
+        RoleGetCategories      = 1 << 28,
+        RoleGetOldTransactions = 1 << 29,
+        RoleUpgradeSystem      = 1 << 30, // Since 0.6.11
+        RoleRepairSystem       = 1 << 31 // Since 0.7.2
+    };
     Q_DECLARE_FLAGS(Roles, Role)
 
     /**
@@ -254,7 +255,7 @@ public:
      * Describes a message's type
      */
     typedef enum {
-        UnknownMessage,
+        MessageUnknown,
         MessageBrokenMirror,
         MessageConnectionRefused,
         MessageParameterInvalid,
@@ -473,6 +474,13 @@ public:
      * \return speed bits per second, or 0 if not known.
      */
     uint speed() const;
+    
+    /**
+     * Returns the number of bytes remaining to download
+     * \return bytes to download, or 0 if nothing is left to download.
+     */
+    Q_PROPERTY(qulonglong DownloadSizeRemaining READ downloadSizeRemaining)
+    qulonglong downloadSizeRemaining() const;
 
     /**
      * Returns information describing the transaction
@@ -569,11 +577,11 @@ public:
      * Download the given \p packages to a temp dir, if \p storeInCache is true
      * the download will be stored in the package manager cache
      */
-    void downloadPackages(const QList<Package> &packages, bool storeInCache = false);
+    void downloadPackages(const PackageList &packages, bool storeInCache = false);
 
     /**
      * This is a convenience function to download this \p package
-     * \sa downloadPackages(const QList<Package> &packages, bool storeInCache = false)
+     * \sa downloadPackages(const PackageList &packages, bool storeInCache = false)
      */
     void downloadPackage(const Package &package, bool storeInCache = false);
 
@@ -593,11 +601,11 @@ public:
      *
      * \note This method emits \sa package()
      */
-    void getDepends(const QList<Package> &packages, Filters filters, bool recursive = false);
+    void getDepends(const PackageList &packages, Filters filters, bool recursive = false);
 
     /**
      * Convenience function to get the dependencies of this \p package
-     * \sa getDetails(const QList<Package> &packages, Filters filters, bool recursive = false)
+     * \sa getDetails(const PackageList &packages, Filters filters, bool recursive = false)
      */
     void getDepends(const Package &package, Filters filters , bool recursive = false);
 
@@ -608,11 +616,11 @@ public:
      * \note This method emits \sa package()
      * with details set
      */
-    void getDetails(const QList<Package> &packages);
+    void getDetails(const PackageList &packages);
 
     /**
      * Convenience function to get the details about this \p package
-     * \sa getDetails(const QList<Package> &packages)
+     * \sa getDetails(const PackageList &packages)
      */
     void getDetails(const Package &package);
 
@@ -621,11 +629,11 @@ public:
      *
      * \note This method emits \sa files()
      */
-    void getFiles(const QList<Package> &packages);
+    void getFiles(const PackageList &packages);
 
     /**
      * Convenience function to get the files contained in this \p package
-     * \sa getRequires(const QList<Package> &packages)
+     * \sa getRequires(const PackageList &packages)
      */
     void getFiles(const Package &packages);
 
@@ -660,11 +668,11 @@ public:
      *
      * \note This method emits \sa package()
      */
-    void getRequires(const QList<Package> &packages, Filters filters, bool recursive = false);
+    void getRequires(const PackageList &packages, Filters filters, bool recursive = false);
 
     /**
      * Convenience function to get packages requiring this package
-     * \sa getRequires(const QList<Package> &packages, Filters filters, bool recursive = false)
+     * \sa getRequires(const PackageList &packages, Filters filters, bool recursive = false)
      */
     void getRequires(const Package &package, Filters filters, bool recursive = false);
 
@@ -673,11 +681,11 @@ public:
      *
      * \note This method emits \sa updateDetail()
      */
-    void getUpdatesDetails(const QList<Package> &packages);
+    void getUpdatesDetails(const PackageList &packages);
 
     /**
      * Convenience function to get update details
-     * \sa getUpdateDetail(const QList<Package> &packages)
+     * \sa getUpdateDetail(const PackageList &packages)
      */
     void getUpdateDetail(const Package &package);
 
@@ -721,11 +729,11 @@ public:
      * \note This method emits \sa package()
      * and \sa changed()
      */
-    void installPackages(const QList<Package> &packages, TransactionFlags flags = TransactionFlagOnlyTrusted);
+    void installPackages(const PackageList &packages, TransactionFlags flags = TransactionFlagOnlyTrusted);
 
     /**
      * Convenience function to install a package
-     * \sa installPackages(const QList<Package> &packages, TransactionFlags flags)
+     * \sa installPackages(const PackageList &packages, TransactionFlags flags)
      */
     void installPackage(const Package &package, TransactionFlags flags = TransactionFlagOnlyTrusted);
 
@@ -753,11 +761,11 @@ public:
      * \note This method emits \sa package()
      * and \sa changed()
      */
-    void removePackages(const QList<Package>  &packages, bool allowDeps = false, bool autoRemove = false, TransactionFlags flags = TransactionFlagOnlyTrusted);
+    void removePackages(const PackageList  &packages, bool allowDeps = false, bool autoRemove = false, TransactionFlags flags = TransactionFlagOnlyTrusted);
 
     /**
      * Convenience function to remove a package
-     * \sa removePackages(const QList<Package>  &packages, bool allowDeps = false, bool autoRemove = false, TransactionFlags flags)
+     * \sa removePackages(const PackageList  &packages, bool allowDeps = false, bool autoRemove = false, TransactionFlags flags)
      */
     void removePackage(const Package &package, bool allowDeps = false, bool autoRemove = false, TransactionFlags flags = TransactionFlagOnlyTrusted);
 
@@ -845,13 +853,7 @@ public:
      *
      * \note This method emits \sa package()
      */
-    void searchGroups(Package::Groups group, Filters filters = FilterNone);
-
-    /**
-     * Convenience function to search by group
-     * \sa searchGroups(Package::Groups group, Filters filters = FilterNone)
-     */
-    void searchGroup(Package::Group group, Filters filters = FilterNone);
+    void searchGroups(PackageDetails::Groups group, Filters filters = FilterNone);
 
     /**
      * \brief Search in the packages names
@@ -875,11 +877,11 @@ public:
      * \note This method emits \sa package()
      * and \sa changed()
      */
-    void updatePackages(const QList<Package> &packages, TransactionFlags flags = TransactionFlagOnlyTrusted);
+    void updatePackages(const PackageList &packages, TransactionFlags flags = TransactionFlagOnlyTrusted);
 
     /**
      * Convenience function to update a package
-     * \sa updatePackages(const QList<Package> &packages, TransactionFlags flags)
+     * \sa updatePackages(const PackageList &packages, TransactionFlags flags)
      */
     void updatePackage(const Package &package, TransactionFlags flags = TransactionFlagOnlyTrusted);
 
@@ -1015,6 +1017,16 @@ Q_SIGNALS:
     void package(const PackageKit::Package &package);
 
     /**
+     * Emitted when the transaction sends a new package
+     */
+    void packageDetails(const PackageKit::PackageDetails &package);
+
+    /**
+     * Emitted when the transaction sends a new package
+     */
+    void packageUpdateDetails(const PackageKit::PackageUpdateDetails &package);
+
+    /**
       * Sends some additional details about a software repository
       * \sa getRepoList()
       */
@@ -1030,7 +1042,7 @@ Q_SIGNALS:
      * Indicates that a restart is required
      * \p package is the package who triggered the restart signal
      */
-    void requireRestart(PackageKit::Package::Restart type, const PackageKit::Package &package);
+    void requireRestart(PackageKit::PackageUpdateDetails::Restart type, const PackageKit::Package &package);
 
     /**
      * Sends an old transaction
@@ -1039,9 +1051,12 @@ Q_SIGNALS:
     void transaction(PackageKit::Transaction *transaction);
 
 protected:
+    static Transaction::InternalError parseError(const QString &errorName);
+
     TransactionPrivate * const d_ptr;
 
 private:
+    friend class Daemon;
     void init(const QDBusObjectPath &tid = QDBusObjectPath());
     Transaction(const QDBusObjectPath &tid,
                 const QString &timespec,
@@ -1059,14 +1074,14 @@ private:
     Q_PRIVATE_SLOT(d_ptr, void errorCode(uint error, const QString &details));
     Q_PRIVATE_SLOT(d_ptr, void eulaRequired(const QString &eulaId, const QString &pid, const QString &vendor, const QString &licenseAgreement));
     Q_PRIVATE_SLOT(d_ptr, void mediaChangeRequired(uint mediaType, const QString &mediaId, const QString &mediaText));
-    Q_PRIVATE_SLOT(d_ptr, void files(const QString &pid, const QString &filenames));
+    Q_PRIVATE_SLOT(d_ptr, void files(const QString &pid, const QStringList &filenames));
     Q_PRIVATE_SLOT(d_ptr, void finished(uint exitCode, uint runtime));
     Q_PRIVATE_SLOT(d_ptr, void message(uint type, const QString &message));
     Q_PRIVATE_SLOT(d_ptr, void package(uint info, const QString &pid, const QString &summary));
     Q_PRIVATE_SLOT(d_ptr, void repoSignatureRequired(const QString &pid, const QString &repoName, const QString &keyUrl, const QString &keyUserid, const QString &keyId, const QString &keyFingerprint, const QString &keyTimestamp, uint type));
     Q_PRIVATE_SLOT(d_ptr, void requireRestart(uint type, const QString &pid));
     Q_PRIVATE_SLOT(d_ptr, void transaction(const QDBusObjectPath &oldTid, const QString &timespec, bool succeeded, uint role, uint duration, const QString &data, uint uid, const QString &cmdline));
-    Q_PRIVATE_SLOT(d_ptr, void updateDetail(const QString &pid, const QString &updates, const QString &obsoletes, const QString &vendorUrl, const QString &bugzillaUrl, const QString &cveUrl, uint restart, const QString &updateText, const QString &changelog, uint state, const QString &issued, const QString &updated));
+    Q_PRIVATE_SLOT(d_ptr, void updateDetail(const QString &package_id, const QStringList &updates, const QStringList &obsoletes, const QStringList &vendor_urls, const QStringList &bugzilla_urls, const QStringList &cve_urls, uint restart, const QString &update_text, const QString &changelog, uint state, const QString &issued, const QString &updated));
     Q_PRIVATE_SLOT(d_ptr, void destroy());
     Q_PRIVATE_SLOT(d_ptr, void daemonQuit());
 };

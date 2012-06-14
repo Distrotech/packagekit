@@ -54,25 +54,25 @@ public:
     /**
      * Describes the current network state
      */
-    typedef enum {
-        UnknownNetwork,
+    enum Network {
+        NetworkUnknown,
         NetworkOffline,
         NetworkOnline,
         NetworkWired,
         NetworkWifi,
         NetworkMobile
-    } Network;
+    };
 
     /**
      * Describes the authorization result
      * \sa canAuthorize()
      */
-    typedef enum {
-        UnknownAuthorize,
+    enum Authorize {
+        AuthorizeUnknown,
         AuthorizeYes,
         AuthorizeNo,
         AuthorizeInteractive
-    } Authorize;
+    };
 
     /**
      * \brief Returns an instance of the Daemon
@@ -116,7 +116,7 @@ public:
     /**
      * Returns the package groups supported by the current backend
      */
-    static Package::Groups groups();
+    static PackageDetails::Groups groups();
 
     /**
      * Set when the backend is locked and native tools would fail.
@@ -146,7 +146,7 @@ public:
      * specified in \p actionId
      * Returm might be either yes, no or interactive \sa Authorize.
      */
-    static Daemon::Authorize canAuthorize(const QString &actionId);
+    static Authorize canAuthorize(const QString &actionId);
 
     /**
      * Returns the time (in seconds) since the specified \p action
@@ -210,11 +210,6 @@ public:
      * This method returns the current hints
      */
     static QStringList hints();
-
-    /**
-     * Sets a proxy to be used for all the network operations
-     */
-    static Transaction::InternalError setProxy(const QString &http_proxy, const QString &ftp_proxy);
 
     /**
      * Sets a proxy to be used for all the network operations
