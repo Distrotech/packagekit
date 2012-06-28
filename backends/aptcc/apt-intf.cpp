@@ -72,7 +72,7 @@ bool AptIntf::init()
     m_isMultiArch = APT::Configuration::getArchitectures(false).size() > 1;
 
     // set locale
-    if (locale = pk_backend_get_locale(m_backend)) {
+    if (locale = pk_backend_job_get_locale(m_backend)) {
         setlocale(LC_ALL, locale);
         // TODO why this cuts characthers on ui?
         // 		string _locale(locale);
@@ -84,12 +84,12 @@ bool AptIntf::init()
     g_free(locale);
 
     // set http proxy
-    http_proxy = pk_backend_get_proxy_http(m_backend);
+    http_proxy = pk_backend_job_get_proxy_http(m_backend);
     setenv("http_proxy", http_proxy, 1);
     g_free(http_proxy);
 
     // set ftp proxy
-    ftp_proxy = pk_backend_get_proxy_ftp(m_backend);
+    ftp_proxy = pk_backend_job_get_proxy_ftp(m_backend);
     setenv("ftp_proxy", ftp_proxy, 1);
     g_free(ftp_proxy);
 
@@ -121,21 +121,21 @@ AptIntf::~AptIntf()
                 emitRequireRestart(m_pkgs);
             } else {
                 // Emit a foo require restart
-                pk_backend_require_restart(m_backend, PK_RESTART_ENUM_SYSTEM, "aptcc;;;");
+                pk_backend_job_require_restart(m_backend, PK_RESTART_ENUM_SYSTEM, "aptcc;;;");
             }
         }
     }
 
     delete m_cache;
 
-    pk_backend_finished(m_backend);
+    pk_backend_job_finished(m_backend);
 }
 
 void AptIntf::cancel()
 {
     if (!m_cancel) {
         m_cancel = true;
-        pk_backend_set_status(m_backend, PK_STATUS_ENUM_CANCEL);
+        pk_backend_job_set_status(m_backend, PK_STATUS_ENUM_CANCEL);
     }
 
     if (m_child_pid > 0) {
@@ -339,7 +339,7 @@ void AptIntf::emitPackage(const pkgCache::VerIterator &ver, PkInfoEnum state)
 
     gchar *package_id;
     package_id = utilBuildPackageId(ver);
-    pk_backend_package(m_backend,
+    pk_backend_job_package(m_backend,
                        state,
                        package_id,
                        m_cache->getShortDescription(ver).c_str());
@@ -350,7 +350,7 @@ void AptIntf::emitPackageProgress(const pkgCache::VerIterator &ver, uint percent
 {
     gchar *package_id;
     package_id = utilBuildPackageId(ver);
-    pk_backend_set_item_progress(m_backend, package_id, percentage);
+    pk_backend_job_set_item_progress(m_backend, package_id, percentage);
     g_free(package_id);
 }
 
@@ -384,7 +384,7 @@ void AptIntf::emitRequireRestart(PkgList &output)
     for (PkgList::const_iterator it = output.begin(); it != output.end(); ++it) {
         gchar *package_id;
         package_id = utilBuildPackageId(*it);
-        pk_backend_require_restart(m_backend, PK_RESTART_ENUM_SYSTEM, package_id);
+        pk_backend_job_require_restart(m_backend, PK_RESTART_ENUM_SYSTEM, package_id);
         g_free(package_id);
     }
 }
@@ -659,7 +659,7 @@ void AptIntf::emitPackageDetail(const pkgCache::VerIterator &ver)
 
     gchar *package_id;
     package_id = utilBuildPackageId(ver);
-    pk_backend_details(m_backend,
+    pk_backend_job_details(m_backend,
                        package_id,
                        "unknown",
                        get_enum_group(section),
@@ -790,7 +790,7 @@ void AptIntf::emitUpdateDetail(const pkgCache::VerIterator &candver)
     fetcher.Setup(&Stat);
 
     // fetch the changelog
-    pk_backend_set_status(m_backend, PK_STATUS_ENUM_DOWNLOAD_CHANGELOG);
+    pk_backend_job_set_status(m_backend, PK_STATUS_ENUM_DOWNLOAD_CHANGELOG);
 
     // Create a random temp dir
     char dirName[] = "/tmp/aptccXXXXXXXX";
@@ -918,7 +918,7 @@ void AptIntf::emitUpdateDetail(const pkgCache::VerIterator &candver)
     bugzilla_urls = getBugzillaUrls(changelog);
     cve_urls = getCVEUrls(changelog);
 
-    pk_backend_update_detail(m_backend,
+    pk_backend_job_update_detail(m_backend,
                              package_id,
                              updates,//const gchar *updates
                              NULL,//const gchar *obsoletes
@@ -1047,17 +1047,17 @@ PkgList AptIntf::getPackagesFromGroup(gchar **values)
     int len = g_strv_length(values);
     for (uint i = 0; i < len; i++) {
         if (values[i] == NULL) {
-            pk_backend_error_code(m_backend,
+            pk_backend_job_error_code(m_backend,
                                   PK_ERROR_ENUM_GROUP_NOT_FOUND,
                                   values[i]);
-            pk_backend_finished(m_backend);
+            pk_backend_job_finished(m_backend);
             return output;
         } else {
             groups.push_back(pk_group_enum_from_string(values[i]));
         }
     }
 
-    pk_backend_set_allow_cancel(m_backend, true);
+    pk_backend_job_set_allow_cancel(m_backend, true);
 
     for (pkgCache::PkgIterator pkg = m_cache->GetPkgCache()->PkgBegin(); !pkg.end(); ++pkg) {
         if (m_cancel) {
@@ -1337,7 +1337,7 @@ void AptIntf::providesMimeType(PkgList &output, gchar **values)
         pkgCache::PkgIterator pkg;
         pkg = (*m_cache)->FindPkg("app-install-data");
         if (pkg->CurrentState != pkgCache::State::Installed) {
-            pk_backend_error_code(m_backend,
+            pk_backend_job_error_code(m_backend,
                                   PK_ERROR_ENUM_INTERNAL_ERROR,
                                   "You need the app-install-data "
                                   "package to be able to look for "
@@ -1394,7 +1394,7 @@ void AptIntf::emitPackageFiles(const gchar *pi)
         }
 
         if (!filelist.empty()) {
-            pk_backend_files(m_backend, pi, filelist.c_str());
+            pk_backend_job_files(m_backend, pi, filelist.c_str());
         }
     }
 }
@@ -1462,7 +1462,7 @@ bool AptIntf::checkTrusted(pkgAcquire &fetcher, bool simulating)
 
     string warning("The following packages cannot be authenticated:\n");
     warning += UntrustedList;
-    pk_backend_error_code(m_backend,
+    pk_backend_job_error_code(m_backend,
                           PK_ERROR_ENUM_CANNOT_INSTALL_REPO_UNSIGNED,
                           warning.c_str());
     _error->Discard();
@@ -1507,7 +1507,7 @@ bool AptIntf::tryToInstall(const pkgCache::VerIterator &ver,
     if (State.CandidateVer == 0) {
         _error->Error("Package %s is virtual and has no installation candidate", Pkg.Name());
 
-        pk_backend_error_code(m_backend,
+        pk_backend_job_error_code(m_backend,
                               PK_ERROR_ENUM_DEP_RESOLUTION_FAILED,
                               g_strdup_printf("Package %s is virtual and has no "
                                               "installation candidate",
@@ -1586,7 +1586,7 @@ bool AptIntf::removingEssentialPackages(AptCacheFile &cache)
 
     delete [] Added;
     if (!List.empty()) {
-        pk_backend_error_code(m_backend,
+        pk_backend_job_error_code(m_backend,
                               PK_ERROR_ENUM_CANNOT_REMOVE_SYSTEM_PACKAGE,
                               g_strdup_printf("WARNING: You are trying to remove the "
                                               "following essential packages: %s",
@@ -1735,7 +1735,7 @@ void AptIntf::updateInterface(int fd, int writeFd)
             // first check for errors and conf-file prompts
             if (strstr(status, "pmerror") != NULL) {
                 // error from dpkg
-                pk_backend_error_code(m_backend,
+                pk_backend_job_error_code(m_backend,
                                       PK_ERROR_ENUM_PACKAGE_FAILED_TO_INSTALL,
                                       str);
             } else if (strstr(status, "pmconffile") != NULL) {
@@ -1775,7 +1775,7 @@ void AptIntf::updateInterface(int fd, int writeFd)
                 argv[4] = NULL;
 
                 gchar *socket;
-                if (socket = pk_backend_get_frontend_socket(m_backend)) {
+                if (socket = pk_backend_job_get_frontend_socket(m_backend)) {
                     envp = (gchar **) g_malloc(3 * sizeof(gchar *));
                     envp[0] = g_strdup("DEBIAN_FRONTEND=passthrough");
                     envp[1] = g_strdup_printf("DEBCONF_PIPE=%s", socket);
@@ -1828,7 +1828,7 @@ void AptIntf::updateInterface(int fd, int writeFd)
                                               "Please verify your changes and update it manually.",
                                               orig_file.c_str(),
                                               new_file.c_str());
-                    pk_backend_message(m_backend,
+                    pk_backend_job_message(m_backend,
                                        PK_MESSAGE_ENUM_CONFIG_FILES_CHANGED,
                                        confmsg);
                     // fall back to keep the current config file
@@ -1931,7 +1931,7 @@ void AptIntf::updateInterface(int fd, int writeFd)
                     // cout << "Found Running dpkg! " << line << endl;
                 } else if (starts_with(str, "Running")) {
                     // cout << "Found Running! " << line << endl;
-                    pk_backend_set_status (m_backend, PK_STATUS_ENUM_COMMIT);
+                    pk_backend_job_set_status (m_backend, PK_STATUS_ENUM_COMMIT);
                 } else if (starts_with(str, "Installing")) {
                     // cout << "Found Installing! " << line << endl;
                     // FINISH the last package
@@ -1987,7 +1987,7 @@ void AptIntf::updateInterface(int fd, int writeFd)
 
             int val = atoi(percent);
             //cout << "progress: " << val << endl;
-            pk_backend_set_percentage(m_backend, val);
+            pk_backend_job_set_percentage(m_backend, val);
 
             // clean-up
             g_strfreev(split);
@@ -2061,7 +2061,7 @@ PkgList AptIntf::resolvePackageIds(gchar **package_ids, PkBitfield filters)
     gchar *pi;
     PkgList ret;
 
-    pk_backend_set_status (m_backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status (m_backend, PK_STATUS_ENUM_QUERY);
 
     // Don't fail if package list is empty
     if (package_ids == NULL) {
@@ -2197,9 +2197,9 @@ bool AptIntf::markFileForInstall(const gchar *file, PkgList &install, PkgList &r
     PkgList pkgs;
     if (exit_code == 1) {
         if (strlen(std_out) == 0) {
-            pk_backend_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_err);
+            pk_backend_job_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_err);
         } else {
-            pk_backend_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_out);
+            pk_backend_job_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_out);
         }
         return false;
     } else {
@@ -2251,7 +2251,7 @@ bool AptIntf::installFile(const gchar *path, bool simulate)
 
     DebFile deb(path);
     if (!deb.isValid()) {
-        pk_backend_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, "DEB package is invalid!");
+        pk_backend_job_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, "DEB package is invalid!");
         return false;
     }
 
@@ -2271,7 +2271,7 @@ bool AptIntf::installFile(const gchar *path, bool simulate)
         cout << arch << " vs. " << aptArch << endl;
         gchar *msg = g_strdup_printf ("Package has wrong architecture, it is %s, but we need %s",
                                       arch.c_str(), aptArch.c_str());
-        pk_backend_error_code(m_backend, PK_ERROR_ENUM_INCOMPATIBLE_ARCHITECTURE, msg);
+        pk_backend_job_error_code(m_backend, PK_ERROR_ENUM_INCOMPATIBLE_ARCHITECTURE, msg);
         g_free (msg);
         return false;
     }
@@ -2299,11 +2299,11 @@ bool AptIntf::installFile(const gchar *path, bool simulate)
     envp = (gchar **) g_malloc(4 * sizeof(gchar *));
     envp[0] = g_strdup("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
     envp[1] = g_strdup("DEBIAN_FRONTEND=passthrough");
-    envp[2] = g_strdup_printf("DEBCONF_PIPE=%s", pk_backend_get_frontend_socket(m_backend));
+    envp[2] = g_strdup_printf("DEBCONF_PIPE=%s", pk_backend_job_get_frontend_socket(m_backend));
     envp[3] = NULL;
 
     // We're installing the package now...
-    pk_backend_package (m_backend, PK_INFO_ENUM_INSTALLING, deb_package_id, deb_summary);
+    pk_backend_job_package (m_backend, PK_INFO_ENUM_INSTALLING, deb_package_id, deb_summary);
 
     g_spawn_sync(NULL, // working dir
                  argv,
@@ -2322,22 +2322,22 @@ bool AptIntf::installFile(const gchar *path, bool simulate)
 
     if (error != NULL) {
         // We couldn't run dpkg for some reason...
-        pk_backend_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, error->message);
+        pk_backend_job_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, error->message);
         return false;
     }
 
     // If installation has failed...
     if (exit_code != 0) {
         if ((std_out == NULL) || (strlen(std_out) == 0)) {
-            pk_backend_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_err);
+            pk_backend_job_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_err);
         } else {
-            pk_backend_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_out);
+            pk_backend_job_error_code(m_backend, PK_ERROR_ENUM_TRANSACTION_ERROR, std_out);
         }
         return false;
     }
 
     // Emit data of the now-installed DEB package
-    pk_backend_package (m_backend, PK_INFO_ENUM_INSTALLED, deb_package_id, deb_summary);
+    pk_backend_job_package (m_backend, PK_INFO_ENUM_INSTALLED, deb_package_id, deb_summary);
     g_free (deb_package_id);
 
     return true;
@@ -2358,7 +2358,7 @@ bool AptIntf::runTransaction(const PkgList &install, const PkgList &remove, bool
             return false;
         } else {
             _error->Discard();
-            pk_backend_set_status (m_backend, PK_STATUS_ENUM_WAITING_FOR_LOCK);
+            pk_backend_job_set_status (m_backend, PK_STATUS_ENUM_WAITING_FOR_LOCK);
             sleep(1);
             timeout--;
         }
@@ -2372,7 +2372,7 @@ bool AptIntf::runTransaction(const PkgList &install, const PkgList &remove, bool
         return false;
     }
 
-    pk_backend_set_status (m_backend, PK_STATUS_ENUM_RUNNING);
+    pk_backend_job_set_status (m_backend, PK_STATUS_ENUM_RUNNING);
 
     // Enter the special broken fixing mode if the user specified arguments
     // THIS mode will run if fixBroken is false and the cache has broken packages
@@ -2515,7 +2515,7 @@ bool AptIntf::installPackages(AptCacheFile &cache, bool simulating, bool downloa
     // Number of bytes
     if (FetchBytes != 0) {
         // Emit the remainig download size
-        pk_backend_set_download_size_remaining(m_backend, FetchBytes);
+        pk_backend_job_set_download_size_remaining(m_backend, FetchBytes);
     }
 
     /* Check for enough free space */
@@ -2530,7 +2530,7 @@ bool AptIntf::installPackages(AptCacheFile &cache, bool simulating, bool downloa
         struct statfs Stat;
         if (statfs(OutputDir.c_str(), &Stat) != 0 ||
                 unsigned(Stat.f_type)            != RAMFS_MAGIC) {
-            pk_backend_error_code(m_backend,
+            pk_backend_job_error_code(m_backend,
                                   PK_ERROR_ENUM_NO_SPACE_ON_DEVICE,
                                   string("You don't have enough free space in ").append(OutputDir).c_str());
             return _error->Error("You don't have enough free space in %s.",
@@ -2586,7 +2586,7 @@ bool AptIntf::installPackages(AptCacheFile &cache, bool simulating, bool downloa
         m_pkgs = checkChangedPackages(cache, false);
     }
 
-    pk_backend_set_status (m_backend, PK_STATUS_ENUM_DOWNLOAD);
+    pk_backend_job_set_status (m_backend, PK_STATUS_ENUM_DOWNLOAD);
     pk_backend_set_simultaneous_mode(m_backend, true);
     // Download and check if we can continue
     if (fetcher.Run() != pkgAcquire::Continue
@@ -2613,11 +2613,11 @@ bool AptIntf::installPackages(AptCacheFile &cache, bool simulating, bool downloa
     }
 
     // Right now it's not safe to cancel
-    pk_backend_set_allow_cancel (m_backend, false);
+    pk_backend_job_set_allow_cancel (m_backend, false);
 
     // Download should be finished by now, changing it's status
-    pk_backend_set_status (m_backend, PK_STATUS_ENUM_RUNNING);
-    pk_backend_set_percentage(m_backend, PK_BACKEND_PERCENTAGE_INVALID);
+    pk_backend_job_set_status (m_backend, PK_STATUS_ENUM_RUNNING);
+    pk_backend_job_set_percentage(m_backend, PK_BACKEND_PERCENTAGE_INVALID);
 
     // we could try to see if this is the case
     setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
@@ -2655,7 +2655,7 @@ bool AptIntf::installPackages(AptCacheFile &cache, bool simulating, bool downloa
 
         // Debconf handlying
         gchar *socket;
-        if (socket = pk_backend_get_frontend_socket(m_backend)) {
+        if (socket = pk_backend_job_get_frontend_socket(m_backend)) {
             setenv("DEBIAN_FRONTEND", "passthrough", 1);
             setenv("DEBCONF_PIPE", socket, 1);
         } else {
@@ -2666,7 +2666,7 @@ bool AptIntf::installPackages(AptCacheFile &cache, bool simulating, bool downloa
 
         gchar *locale;
         // Set the LANGUAGE so debconf messages get localization
-        if (locale = pk_backend_get_locale(m_backend)) {
+        if (locale = pk_backend_job_get_locale(m_backend)) {
             setenv("LANGUAGE", locale, 1);
             setenv("LANG", locale, 1);
             //setenv("LANG", "C", 1);

@@ -73,7 +73,7 @@ void pk_backend_initialize(PkBackend *backend)
     setenv("APT_LISTCHANGES_FRONTEND", "debconf", 1);
 
     spawn = pk_backend_spawn_new();
-    pk_backend_spawn_set_backend(spawn, backend);
+    pk_backend_spawn_set_job(spawn, backend);
     pk_backend_spawn_set_name(spawn, "aptcc");
 }
 
@@ -151,7 +151,7 @@ pk_backend_get_mime_types(PkBackend *backend)
 /**
  * pk_backend_cancel:
  */
-void pk_backend_cancel(PkBackend *backend)
+void pk_backend_cancel(PkBackend *backend, PkBackendJob *job)
 {
     AptIntf *apt = (AptIntf*) pk_backend_get_pointer(backend, "aptcc_obj");
     if (apt) {
@@ -159,7 +159,7 @@ void pk_backend_cancel(PkBackend *backend)
     }
 }
 
-static void backend_get_depends_or_requires_thread(PkBackend *backend, gpointer user_data)
+static void backend_get_depends_or_requires_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **package_ids;
     PkBitfield filters;
@@ -170,7 +170,7 @@ static void backend_get_depends_or_requires_thread(PkBackend *backend, gpointer 
     filters = (PkBitfield) pk_backend_get_uint(backend, "filters");
     recursive = pk_backend_get_bool(backend, "recursive");
 
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
     pk_backend_set_pointer(backend, "aptcc_obj", apt);
@@ -182,7 +182,7 @@ static void backend_get_depends_or_requires_thread(PkBackend *backend, gpointer 
 
     bool depends = pk_backend_get_bool(backend, "get_depends");
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
     PkgList output;
     for (uint i = 0; i < g_strv_length(package_ids); ++i) {
         if (_cancel) {
@@ -190,7 +190,7 @@ static void backend_get_depends_or_requires_thread(PkBackend *backend, gpointer 
         }
         pi = package_ids[i];
         if (pk_package_id_check(pi) == false) {
-            pk_backend_error_code(backend,
+            pk_backend_job_error_code(job,
                                   PK_ERROR_ENUM_PACKAGE_ID_INVALID,
                                   pi);
             delete apt;
@@ -199,7 +199,7 @@ static void backend_get_depends_or_requires_thread(PkBackend *backend, gpointer 
 
         const pkgCache::VerIterator &ver = apt->findPackageId(pi);
         if (ver.end()) {
-            pk_backend_error_code(backend,
+            pk_backend_job_error_code(job,
                                   PK_ERROR_ENUM_PACKAGE_NOT_FOUND,
                                   "Couldn't find package");
             delete apt;
@@ -226,7 +226,7 @@ void pk_backend_get_depends(PkBackend *backend, PkBitfield filters, gchar **pack
 {
     pk_backend_set_bool(backend, "get_depends", true);
     pk_backend_set_bool(backend, "recursive", recursive);
-    pk_backend_thread_create(backend, backend_get_depends_or_requires_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_depends_or_requires_thread, NULL, NULL);
 }
 
 /**
@@ -236,7 +236,7 @@ void pk_backend_get_requires(PkBackend *backend, PkBitfield filters, gchar **pac
 {
     pk_backend_set_bool(backend, "get_depends", false);
     pk_backend_set_bool(backend, "recursive", recursive);
-    pk_backend_thread_create(backend, backend_get_depends_or_requires_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_depends_or_requires_thread, NULL, NULL);
 }
 
 /**
@@ -247,17 +247,17 @@ void pk_backend_get_distro_upgrades(PkBackend *backend)
     pk_backend_spawn_helper(spawn, "get-distro-upgrade.py", "get-distro-upgrades", NULL);
 }
 
-static void backend_get_files_thread(PkBackend *backend, gpointer user_data)
+static void backend_get_files_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **package_ids;
     gchar *pi;
 
     package_ids = pk_backend_get_strv(backend, "package_ids");
     if (package_ids == NULL) {
-        pk_backend_error_code(backend,
+        pk_backend_job_error_code(job,
                               PK_ERROR_ENUM_PACKAGE_ID_INVALID,
                               "Invalid package id");
-        pk_backend_finished(backend);
+        pk_backend_job_finished(job);
         return;
     }
 
@@ -269,11 +269,11 @@ static void backend_get_files_thread(PkBackend *backend, gpointer user_data)
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
     for (uint i = 0; i < g_strv_length(package_ids); ++i) {
         pi = package_ids[i];
         if (pk_package_id_check(pi) == false) {
-            pk_backend_error_code(backend,
+            pk_backend_job_error_code(job,
                                   PK_ERROR_ENUM_PACKAGE_ID_INVALID,
                                   pi);
             delete apt;
@@ -282,7 +282,7 @@ static void backend_get_files_thread(PkBackend *backend, gpointer user_data)
 
         const pkgCache::VerIterator &ver = apt->findPackageId(pi);
         if (ver.end()) {
-            pk_backend_error_code(backend, PK_ERROR_ENUM_PACKAGE_NOT_FOUND, "Couldn't find package");
+            pk_backend_job_error_code(job, PK_ERROR_ENUM_PACKAGE_NOT_FOUND, "Couldn't find package");
             delete apt;
             return;
         }
@@ -298,21 +298,21 @@ static void backend_get_files_thread(PkBackend *backend, gpointer user_data)
  */
 void pk_backend_get_files(PkBackend *backend, gchar **package_ids)
 {
-    pk_backend_thread_create(backend, backend_get_files_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_files_thread, NULL, NULL);
 }
 
-static void backend_get_details_thread(PkBackend *backend, gpointer user_data)
+static void backend_get_details_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **package_ids;
 
-    PkRoleEnum role = pk_backend_get_role(backend);
+    PkRoleEnum role = pk_backend_job_get_role(job);
     bool updateDetail = role == PK_ROLE_ENUM_GET_UPDATE_DETAIL ? true : false;
     package_ids = pk_backend_get_strv(backend, "package_ids");
     if (package_ids == NULL) {
-        pk_backend_error_code(backend,
+        pk_backend_job_error_code(job,
                               PK_ERROR_ENUM_PACKAGE_ID_INVALID,
                               "Invalid package id");
-        pk_backend_finished(backend);
+        pk_backend_job_finished(job);
         return;
     }
 
@@ -330,7 +330,7 @@ static void backend_get_details_thread(PkBackend *backend, gpointer user_data)
         pkgInitSystem(*_config, _system);
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
     PkgList pkgs = apt->resolvePackageIds(package_ids);
 
     if (updateDetail) {
@@ -347,7 +347,7 @@ static void backend_get_details_thread(PkBackend *backend, gpointer user_data)
  */
 void pk_backend_get_update_detail(PkBackend *backend, gchar **package_ids)
 {
-    pk_backend_thread_create(backend, backend_get_details_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_details_thread, NULL, NULL);
 }
 
 /**
@@ -355,16 +355,16 @@ void pk_backend_get_update_detail(PkBackend *backend, gchar **package_ids)
  */
 void pk_backend_get_details(PkBackend *backend, gchar **package_ids)
 {
-    pk_backend_thread_create(backend, backend_get_details_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_details_thread, NULL, NULL);
 }
 
-static void backend_get_or_update_system_thread(PkBackend *backend, gpointer user_data)
+static void backend_get_or_update_system_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     PkBitfield filters;
     bool getUpdates;
     filters = (PkBitfield) pk_backend_get_uint(backend, "filters");
     getUpdates = pk_backend_get_bool(backend, "getUpdates");
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
     pk_backend_set_pointer(backend, "aptcc_obj", apt);
@@ -374,25 +374,25 @@ static void backend_get_or_update_system_thread(PkBackend *backend, gpointer use
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
 
     AptCacheFile cache(backend);
     int timeout = 10;
     // TODO test this
     while (cache.Open(!getUpdates) == false || cache.CheckDeps() == false) {
         if (getUpdates == true || (timeout <= 0)) {
-            pk_backend_error_code(backend,
+            pk_backend_job_error_code(job,
                                   PK_ERROR_ENUM_NO_CACHE,
                                   "Could not open package cache.");
             delete apt;
             return;
         } else {
-            pk_backend_set_status(backend, PK_STATUS_ENUM_WAITING_FOR_LOCK);
+            pk_backend_job_set_status(job, PK_STATUS_ENUM_WAITING_FOR_LOCK);
             sleep(1);
             timeout--;
         }
     }
-    pk_backend_set_status(backend, PK_STATUS_ENUM_RUNNING);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_RUNNING);
 
     if (cache.DistUpgrade() == false) {
         cache.ShowBroken(false);
@@ -446,7 +446,7 @@ static void backend_get_or_update_system_thread(PkBackend *backend, gpointer use
 void pk_backend_get_updates(PkBackend *backend, PkBitfield filters)
 {
     pk_backend_set_bool(backend, "getUpdates", true);
-    pk_backend_thread_create(backend, backend_get_or_update_system_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_or_update_system_thread, NULL, NULL);
 }
 
 /**
@@ -455,10 +455,10 @@ void pk_backend_get_updates(PkBackend *backend, PkBitfield filters)
 void pk_backend_update_system(PkBackend *backend, PkBitfield transaction_flags)
 {
     pk_backend_set_bool(backend, "getUpdates", false);
-    pk_backend_thread_create(backend, backend_get_or_update_system_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_or_update_system_thread, NULL, NULL);
 }
 
-static void backend_what_provides_thread(PkBackend *backend, gpointer user_data)
+static void backend_what_provides_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     PkProvidesEnum provides;
     PkBitfield filters;
@@ -470,7 +470,7 @@ static void backend_what_provides_thread(PkBackend *backend, gpointer user_data)
     provides = (PkProvidesEnum) pk_backend_get_uint(backend, "provides");
     values   = pk_backend_get_strv(backend, "search");
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
 
     // We can handle libraries, mimetypes and codecs
     if (provides == PK_PROVIDES_ENUM_SHARED_LIB ||
@@ -486,7 +486,7 @@ static void backend_what_provides_thread(PkBackend *backend, gpointer user_data)
             return;
         }
 
-        pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+        pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
 
         PkgList output;
         if (provides == PK_PROVIDES_ENUM_SHARED_LIB) {
@@ -508,11 +508,11 @@ static void backend_what_provides_thread(PkBackend *backend, gpointer user_data)
         delete apt;
     } else {
         provides_text = pk_provides_enum_to_string(provides);
-        pk_backend_error_code(backend,
+        pk_backend_job_error_code(job,
                               PK_ERROR_ENUM_NOT_SUPPORTED,
                               "Provides %s not supported",
                               provides_text);
-        pk_backend_finished(backend);
+        pk_backend_job_finished(job);
     }
 }
 
@@ -524,20 +524,20 @@ void pk_backend_what_provides(PkBackend *backend,
                               PkProvidesEnum provide,
                               gchar **values)
 {
-    pk_backend_thread_create(backend, backend_what_provides_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_what_provides_thread, NULL, NULL);
 }
 
 /**
  * pk_backend_download_packages_thread:
  */
-static void pk_backend_download_packages_thread(PkBackend *backend, gpointer user_data)
+static void pk_backend_download_packages_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **package_ids;
     string directory;
 
     package_ids = pk_backend_get_strv(backend, "package_ids");
     directory = _config->FindDir("Dir::Cache::archives") + "partial/";
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
     pk_backend_set_pointer(backend, "aptcc_obj", apt);
@@ -547,7 +547,7 @@ static void pk_backend_download_packages_thread(PkBackend *backend, gpointer use
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
     // Create the progress
     AcqPackageKitStatus Stat(apt, backend, _cancel);
 
@@ -580,7 +580,7 @@ static void pk_backend_download_packages_thread(PkBackend *backend, gpointer use
     for (uint i = 0; i < g_strv_length(package_ids); ++i) {
         pi = package_ids[i];
         if (pk_package_id_check(pi) == false) {
-            pk_backend_error_code(backend,
+            pk_backend_job_error_code(job,
                                   PK_ERROR_ENUM_PACKAGE_ID_INVALID,
                                   pi);
             delete apt;
@@ -629,7 +629,7 @@ static void pk_backend_download_packages_thread(PkBackend *backend, gpointer use
     }
 
     // send the filelist
-    pk_backend_files(backend, NULL, filelist.c_str());
+    pk_backend_job_files(backend, NULL, filelist.c_str());
 
     delete apt;
 }
@@ -639,15 +639,15 @@ static void pk_backend_download_packages_thread(PkBackend *backend, gpointer use
  */
 void pk_backend_download_packages(PkBackend *backend, gchar **package_ids, const gchar *directory)
 {
-    pk_backend_thread_create(backend, pk_backend_download_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, pk_backend_download_packages_thread, NULL, NULL);
 }
 
 /**
  * pk_backend_refresh_cache_thread:
  */
-static void pk_backend_refresh_cache_thread(PkBackend *backend, gpointer user_data)
+static void pk_backend_refresh_cache_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
     pk_backend_set_pointer(backend, "aptcc_obj", apt);
@@ -657,13 +657,13 @@ static void pk_backend_refresh_cache_thread(PkBackend *backend, gpointer user_da
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_REFRESH_CACHE);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_REFRESH_CACHE);
     // Lock the list directory
     FileFd Lock;
     if (_config->FindB("Debug::NoLocking", false) == false) {
         Lock.Fd(GetLock(_config->FindDir("Dir::State::Lists") + "lock"));
         if (_error->PendingError() == true) {
-            pk_backend_error_code(backend, PK_ERROR_ENUM_CANNOT_GET_LOCK, "Unable to lock the list directory");
+            pk_backend_job_error_code(job, PK_ERROR_ENUM_CANNOT_GET_LOCK, "Unable to lock the list directory");
             delete apt;
             return;
             // 	 return _error->Error(_("Unable to lock the list directory"));
@@ -696,17 +696,17 @@ static void pk_backend_refresh_cache_thread(PkBackend *backend, gpointer user_da
  */
 void pk_backend_refresh_cache(PkBackend *backend, gboolean force)
 {
-    pk_backend_thread_create(backend, pk_backend_refresh_cache_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, pk_backend_refresh_cache_thread, NULL, NULL);
 }
 
-static void pk_backend_resolve_thread(PkBackend *backend, gpointer user_data)
+static void pk_backend_resolve_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **package_ids;
     PkBitfield filters;
 
     filters = (PkBitfield) pk_backend_get_uint(backend, "filters");
     package_ids = pk_backend_get_strv(backend, "package_ids");
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
     pk_backend_set_pointer(backend, "aptcc_obj", apt);
@@ -729,10 +729,10 @@ static void pk_backend_resolve_thread(PkBackend *backend, gpointer user_data)
  */
 void pk_backend_resolve(PkBackend *backend, PkBitfield filters, gchar **packages)
 {
-    pk_backend_thread_create(backend, pk_backend_resolve_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, pk_backend_resolve_thread, NULL, NULL);
 }
 
-static void pk_backend_search_files_thread(PkBackend *backend, gpointer user_data)
+static void pk_backend_search_files_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **values;
     PkBitfield filters;
@@ -740,7 +740,7 @@ static void pk_backend_search_files_thread(PkBackend *backend, gpointer user_dat
     values = pk_backend_get_strv(backend, "search");
     filters = (PkBitfield) pk_backend_get_uint(backend, "filters");
 
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     // as we can only search for installed files lets avoid the opposite
     if (!pk_bitfield_contain(filters, PK_FILTER_ENUM_NOT_INSTALLED)) {
@@ -752,7 +752,7 @@ static void pk_backend_search_files_thread(PkBackend *backend, gpointer user_dat
             return;
         }
 
-        pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+        pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
         PkgList output;
         output = apt->searchPackageFiles(values);
 
@@ -761,7 +761,7 @@ static void pk_backend_search_files_thread(PkBackend *backend, gpointer user_dat
 
         delete apt;
     } else {
-        pk_backend_finished(backend);
+        pk_backend_job_finished(job);
     }
 }
 
@@ -770,10 +770,10 @@ static void pk_backend_search_files_thread(PkBackend *backend, gpointer user_dat
  */
 void pk_backend_search_files(PkBackend *backend, PkBitfield filters, gchar **values)
 {
-    pk_backend_thread_create(backend, pk_backend_search_files_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, pk_backend_search_files_thread, NULL, NULL);
 }
 
-static void backend_search_groups_thread(PkBackend *backend, gpointer user_data)
+static void backend_search_groups_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **values;
     PkBitfield filters;
@@ -789,14 +789,14 @@ static void backend_search_groups_thread(PkBackend *backend, gpointer user_data)
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
 
     // It's faster to emmit the packages here rather than in the matching part
     PkgList output;
     output = apt->getPackagesFromGroup(values);
     apt->emitPackages(output, filters);
 
-    pk_backend_set_percentage(backend, 100);
+    pk_backend_job_set_percentage(job, 100);
     delete apt;
 }
 
@@ -805,10 +805,10 @@ static void backend_search_groups_thread(PkBackend *backend, gpointer user_data)
  */
 void pk_backend_search_groups(PkBackend *backend, PkBitfield filters, gchar **values)
 {
-    pk_backend_thread_create(backend, backend_search_groups_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_search_groups_thread, NULL, NULL);
 }
 
-static void backend_search_package_thread(PkBackend *backend, gpointer user_data)
+static void backend_search_package_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     gchar **values;
     gchar *search;
@@ -833,9 +833,9 @@ static void backend_search_package_thread(PkBackend *backend, gpointer user_data
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
-    pk_backend_set_percentage(backend, PK_BACKEND_PERCENTAGE_INVALID);
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_percentage(job, PK_BACKEND_PERCENTAGE_INVALID);
+    pk_backend_job_set_allow_cancel(job, true);
 
     PkgList output;
     if (pk_backend_get_bool(backend, "search_details")) {
@@ -848,7 +848,7 @@ static void backend_search_package_thread(PkBackend *backend, gpointer user_data
     // It's faster to emmit the packages here than in the matching part
     apt->emitPackages(output, filters);
 
-    pk_backend_set_percentage(backend, 100);
+    pk_backend_job_set_percentage(job, 100);
     delete apt;
 }
 
@@ -858,7 +858,7 @@ static void backend_search_package_thread(PkBackend *backend, gpointer user_data
 void pk_backend_search_names(PkBackend *backend, PkBitfield filters, gchar **values)
 {
     pk_backend_set_bool(backend, "search_details", false);
-    pk_backend_thread_create(backend, backend_search_package_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_search_package_thread, NULL, NULL);
 }
 
 /**
@@ -867,10 +867,10 @@ void pk_backend_search_names(PkBackend *backend, PkBitfield filters, gchar **val
 void pk_backend_search_details(PkBackend *backend, PkBitfield filters, gchar **values)
 {
     pk_backend_set_bool(backend, "search_details", true);
-    pk_backend_thread_create(backend, backend_search_package_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_search_package_thread, NULL, NULL);
 }
 
-static void backend_manage_packages_thread(PkBackend *backend, gpointer user_data)
+static void backend_manage_packages_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     // Get the transaction flags
     PkBitfield transaction_flags = pk_backend_get_uint(backend, "transaction_flags");
@@ -884,7 +884,7 @@ static void backend_manage_packages_thread(PkBackend *backend, gpointer user_dat
     downloadOnly = pk_bitfield_contain(transaction_flags, PK_TRANSACTION_FLAG_ENUM_ONLY_DOWNLOAD);
 
     // Get the transaction role since this method is called by install/remove/update
-    PkRoleEnum role = pk_backend_get_role(backend);
+    PkRoleEnum role = pk_backend_job_get_role(job);
 
     // Check if we are removing packages
     bool remove = (role == PK_ROLE_ENUM_REMOVE_PACKAGES);
@@ -904,7 +904,7 @@ static void backend_manage_packages_thread(PkBackend *backend, gpointer user_dat
         fixBroken = true;
     }
     g_debug("FILE INSTALL: %i", fileInstall);
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
     pk_backend_set_pointer(backend, "aptcc_obj", apt);
@@ -914,7 +914,7 @@ static void backend_manage_packages_thread(PkBackend *backend, gpointer user_dat
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
     PkgList installPkgs, removePkgs;
 
     if (fileInstall) {
@@ -922,7 +922,7 @@ static void backend_manage_packages_thread(PkBackend *backend, gpointer user_dat
 
         // GDebi can not install more than one package at time
         if (g_strv_length(full_paths) > 1) {
-            pk_backend_error_code(backend,
+            pk_backend_job_error_code(job,
                                   PK_ERROR_ENUM_NOT_SUPPORTED,
                                   "The backend can only proccess one file at time.");
             delete apt;
@@ -948,7 +948,7 @@ static void backend_manage_packages_thread(PkBackend *backend, gpointer user_dat
         }
 
         if (removePkgs.size() == 0 && installPkgs.size() == 0) {
-            pk_backend_error_code(backend,
+            pk_backend_job_error_code(job,
                                   PK_ERROR_ENUM_PACKAGE_NOT_FOUND,
                                   "Could not find package(s)");
             delete apt;
@@ -997,7 +997,7 @@ static void backend_manage_packages_thread(PkBackend *backend, gpointer user_dat
  */
 void pk_backend_install_packages(PkBackend *backend, PkBitfield transaction_flags, gchar **package_ids)
 {
-    pk_backend_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
 }
 
 /**
@@ -1005,7 +1005,7 @@ void pk_backend_install_packages(PkBackend *backend, PkBitfield transaction_flag
  */
 void pk_backend_update_packages(PkBackend *backend, PkBitfield transaction_flags, gchar **package_ids)
 {
-    pk_backend_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
 }
 
 /**
@@ -1013,7 +1013,7 @@ void pk_backend_update_packages(PkBackend *backend, PkBitfield transaction_flags
  */
 void pk_backend_install_files(PkBackend *backend, PkBitfield transaction_flags, gchar **full_paths)
 {
-    pk_backend_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
 }
 
 /**
@@ -1025,7 +1025,7 @@ void pk_backend_remove_packages(PkBackend *backend,
                                 gboolean allow_deps,
                                 gboolean autoremove)
 {
-    pk_backend_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
 }
 
 /**
@@ -1033,10 +1033,10 @@ void pk_backend_remove_packages(PkBackend *backend,
  */
 void pk_backend_repair_system(PkBackend *backend, PkBitfield transaction_flags)
 {
-    pk_backend_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_manage_packages_thread, NULL, NULL);
 }
 
-static void backend_repo_manager_thread(PkBackend *backend, gpointer user_data)
+static void backend_repo_manager_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     // list
     PkBitfield filters;
@@ -1050,11 +1050,11 @@ static void backend_repo_manager_thread(PkBackend *backend, gpointer user_data)
     bool list = pk_backend_get_bool(backend, "list");
 
     if (list) {
-        pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+        pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
         filters = (PkBitfield) pk_backend_get_uint(backend, "filters");
         notDevelopment = pk_bitfield_contain(filters, PK_FILTER_ENUM_NOT_DEVELOPMENT);
     } else {
-        pk_backend_set_status(backend, PK_STATUS_ENUM_REQUEST);
+        pk_backend_job_set_status(job, PK_STATUS_ENUM_REQUEST);
         repo_id = pk_backend_get_string(backend, "repo_id");
         enabled = pk_backend_get_bool(backend, "enabled");
     }
@@ -1069,7 +1069,7 @@ static void backend_repo_manager_thread(PkBackend *backend, gpointer user_data)
     if (_lst.ReadVendors() == false) {
         _error->Error("Cannot read vendors.list file");
         show_errors(backend, PK_ERROR_ENUM_FAILED_CONFIG_PARSING);
-        pk_backend_finished(backend);
+        pk_backend_job_finished(job);
         return;
     }
 
@@ -1107,7 +1107,7 @@ static void backend_repo_manager_thread(PkBackend *backend, gpointer user_data)
         string repoId(hash);
 
         if (list) {
-            pk_backend_repo_detail(backend,
+            pk_backend_job_repo_detail(backend,
                                    repoId.c_str(),
                                    repo.c_str(),
                                    !((*it)->Type & SourcesList::Disabled));
@@ -1133,7 +1133,7 @@ static void backend_repo_manager_thread(PkBackend *backend, gpointer user_data)
             show_errors(backend, PK_ERROR_ENUM_CANNOT_WRITE_REPO_CONFIG);
         }
     }
-    pk_backend_finished(backend);
+    pk_backend_job_finished(job);
 }
 
 /**
@@ -1142,7 +1142,7 @@ static void backend_repo_manager_thread(PkBackend *backend, gpointer user_data)
 void pk_backend_get_repo_list(PkBackend *backend, PkBitfield filters)
 {
     pk_backend_set_bool(backend, "list", true);
-    pk_backend_thread_create(backend, backend_repo_manager_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_repo_manager_thread, NULL, NULL);
 }
 
 /**
@@ -1151,14 +1151,14 @@ void pk_backend_get_repo_list(PkBackend *backend, PkBitfield filters)
 void pk_backend_repo_enable(PkBackend *backend, const gchar *rid, gboolean enabled)
 {
     pk_backend_set_bool(backend, "list", false);
-    pk_backend_thread_create(backend, backend_repo_manager_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_repo_manager_thread, NULL, NULL);
 }
 
-static void backend_get_packages_thread(PkBackend *backend, gpointer user_data)
+static void backend_get_packages_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     PkBitfield filters;
     filters = (PkBitfield) pk_backend_get_uint(backend, "filters");
-    pk_backend_set_allow_cancel(backend, true);
+    pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
     pk_backend_set_pointer(backend, "aptcc_obj", apt);
@@ -1168,7 +1168,7 @@ static void backend_get_packages_thread(PkBackend *backend, gpointer user_data)
         return;
     }
 
-    pk_backend_set_status(backend, PK_STATUS_ENUM_QUERY);
+    pk_backend_job_set_status(job, PK_STATUS_ENUM_QUERY);
     PkgList output;
     output = apt->getPackages();
 
@@ -1183,7 +1183,7 @@ static void backend_get_packages_thread(PkBackend *backend, gpointer user_data)
  */
 void pk_backend_get_packages(PkBackend *backend, PkBitfield filter)
 {
-    pk_backend_thread_create(backend, backend_get_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(backend, backend_get_packages_thread, NULL, NULL);
 }
 
 
@@ -1192,9 +1192,9 @@ void pk_backend_get_packages(PkBackend *backend, PkBitfield filter)
  */
 /* TODO
 void
-pk_backend_get_categories (PkBackend *backend)
+pk_backend_get_categories (PkBackend *backend, PkBackendJob *job)
 {
-    pk_backend_thread_create (backend, pk_backend_get_categories_thread, NULL, NULL);
+    pk_backend_job_thread_create (job, pk_backend_get_categories_thread, NULL, NULL);
 }
 */
 

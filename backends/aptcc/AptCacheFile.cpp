@@ -230,7 +230,7 @@ void AptCacheFile::ShowBroken(bool Now, PkErrorEnum error)
             }
         }
     }
-    pk_backend_error_code(m_backend, error, utf8(out.str().c_str()));
+    pk_backend_job_error_code(m_backend, error, utf8(out.str().c_str()));
 }
 
 void AptCacheFile::buildPkgRecords()

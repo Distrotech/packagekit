@@ -48,7 +48,7 @@ void AcqPackageKitStatus::Start()
 void AcqPackageKitStatus::IMSHit(pkgAcquire::ItemDesc &Itm)
 {
     if (m_packages.size() == 0) {
-        pk_backend_repo_detail(m_backend,
+        pk_backend_job_repo_detail(m_backend,
                                "",
                                Itm.Description.c_str(),
                                true);
@@ -89,7 +89,7 @@ void AcqPackageKitStatus::Fail(pkgAcquire::ItemDesc &Itm)
     if (Itm.Owner->Status == pkgAcquire::Item::StatDone)
     {
         if (m_packages.size() == 0) {
-            pk_backend_repo_detail(m_backend,
+            pk_backend_job_repo_detail(m_backend,
                                    "",
                                    Itm.Description.c_str(),
                                    false);
@@ -138,16 +138,16 @@ bool AcqPackageKitStatus::Pulse(pkgAcquire *Owner)
     // Emit the percent done
     if (m_lastPercent != percent_done) {
         if (m_lastPercent < percent_done) {
-            pk_backend_set_percentage(m_backend, percent_done);
+            pk_backend_job_set_percentage(m_backend, percent_done);
         } else {
-            pk_backend_set_percentage(m_backend, PK_BACKEND_PERCENTAGE_INVALID);
-            pk_backend_set_percentage(m_backend, percent_done);
+            pk_backend_job_set_percentage(m_backend, PK_BACKEND_PERCENTAGE_INVALID);
+            pk_backend_job_set_percentage(m_backend, percent_done);
         }
         m_lastPercent = percent_done;
     }
 
     // Emit the download remaining size
-    pk_backend_set_download_size_remaining(m_backend, TotalBytes - CurrentBytes);
+    pk_backend_job_set_download_size_remaining(m_backend, TotalBytes - CurrentBytes);
 
     for (pkgAcquire::Worker *I = Owner->WorkersBegin(); I != 0;
          I = Owner->WorkerStep(I))
@@ -188,7 +188,7 @@ bool AcqPackageKitStatus::Pulse(pkgAcquire *Owner)
     if (localCPS != m_lastCPS)
     {
         m_lastCPS = localCPS;
-        pk_backend_set_speed(m_backend, static_cast<uint>(m_lastCPS));
+        pk_backend_job_set_speed(m_backend, static_cast<uint>(m_lastCPS));
     }
 
     Update = false;
@@ -201,7 +201,7 @@ bool AcqPackageKitStatus::Pulse(pkgAcquire *Owner)
 /* Prompt for a media swap */
 bool AcqPackageKitStatus::MediaChange(string Media, string Drive)
 {
-    pk_backend_media_change_required(m_backend,
+    pk_backend_job_media_change_required(m_backend,
                                      PK_MEDIA_TYPE_ENUM_DISC,
                                      Media.c_str(),
                                      Media.c_str());
@@ -214,7 +214,7 @@ bool AcqPackageKitStatus::MediaChange(string Media, string Drive)
             Media.c_str(),
             Drive.c_str());
 
-    pk_backend_error_code(m_backend,
+    pk_backend_job_error_code(m_backend,
                           PK_ERROR_ENUM_MEDIA_CHANGE_REQUIRED,
                           errorMsg);
 
