@@ -350,7 +350,7 @@ void AptIntf::emitPackageProgress(const pkgCache::VerIterator &ver, uint percent
 {
     gchar *package_id;
     package_id = utilBuildPackageId(ver);
-    pk_backend_job_set_item_progress(m_job, package_id, percentage);
+    pk_backend_job_set_item_progress(m_job, package_id, PK_STATUS_ENUM_UNKNOWN, percentage);
     g_free(package_id);
 }
 

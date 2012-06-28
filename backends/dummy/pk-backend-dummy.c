@@ -882,6 +882,7 @@ pk_backend_update_packages_download_timeout (gpointer data)
 					"Power consumption monitor");
 		pk_backend_job_set_item_progress (job,
 						  "powertop;1.8-1.fc8;i386;fedora",
+						  PK_STATUS_ENUM_DOWNLOAD,
 						  0);
 	}
 	if (job_data->progress_percentage == 20 && !priv->updated_kernel) {
@@ -890,6 +891,7 @@ pk_backend_update_packages_download_timeout (gpointer data)
 					"The Linux kernel (the core of the Linux operating system)");
 		pk_backend_job_set_item_progress (job,
 						  "kernel;2.6.23-0.115.rc3.git1.fc8;i386;installed",
+						  PK_STATUS_ENUM_DOWNLOAD,
 						  0);
 		pk_backend_job_require_restart (job, PK_RESTART_ENUM_SYSTEM, "kernel;2.6.23-0.115.rc3.git1.fc8;i386;installed");
 	}
@@ -907,6 +909,7 @@ pk_backend_update_packages_download_timeout (gpointer data)
 		}
 		pk_backend_job_set_item_progress (job,
 						  "gtkhtml2;2.19.1-4.fc8;i386;fedora",
+						  PK_STATUS_ENUM_DOWNLOAD,
 						  0);
 	}
 	if (job_data->progress_percentage == 40 && !priv->updated_powertop) {
@@ -917,6 +920,7 @@ pk_backend_update_packages_download_timeout (gpointer data)
 					"Power consumption monitor");
 		pk_backend_job_set_item_progress (job,
 						  "powertop;1.8-1.fc8;i386;fedora",
+						  PK_STATUS_ENUM_DOWNLOAD,
 						  0);
 		priv->updated_powertop = TRUE;
 	}
@@ -926,10 +930,12 @@ pk_backend_update_packages_download_timeout (gpointer data)
 					"The Linux kernel (the core of the Linux operating system)");
 		pk_backend_job_set_item_progress (job,
 						  "kernel;2.6.23-0.115.rc3.git1.fc8;i386;installed",
+						  PK_STATUS_ENUM_DOWNLOAD,
 						  0);
 		priv->updated_kernel = TRUE;
 		pk_backend_job_set_item_progress (job,
 						  "kernel;2.6.23-0.115.rc3.git1.fc8;i386;installed",
+						  PK_STATUS_ENUM_DOWNLOAD,
 						  0);
 	}
 	if (job_data->progress_percentage == 80 && !priv->updated_kernel) {
@@ -938,6 +944,7 @@ pk_backend_update_packages_download_timeout (gpointer data)
 					"The Linux kernel (the core of the Linux operating system)");
 		pk_backend_job_set_item_progress (job,
 						  "kernel;2.6.23-0.115.rc3.git1.fc8;i386;installed",
+						  PK_STATUS_ENUM_DOWNLOAD,
 						  0);
 	}
 	job_data->progress_percentage += 1;
