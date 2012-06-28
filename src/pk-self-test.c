@@ -145,15 +145,16 @@ pk_test_backend_func_true (PkBackend *backend, gpointer user_data)
 	g_usleep (1000*1000);
 	g_assert_cmpint (GPOINTER_TO_INT (user_data), ==, 999);
 	/* trigger duplicate test */
-	pk_backend_package (backend, PK_INFO_ENUM_AVAILABLE, "vips-doc;7.12.4-2.fc8;noarch;linva", "The vips documentation package.");
-	pk_backend_package (backend, PK_INFO_ENUM_AVAILABLE, "vips-doc;7.12.4-2.fc8;noarch;linva", "The vips documentation package.");
-	pk_backend_finished (backend);
+
+	pk_backend_job_package (backend, PK_INFO_ENUM_AVAILABLE, "vips-doc;7.12.4-2.fc8;noarch;linva", "The vips documentation package.");
+	pk_backend_job_package (backend, PK_INFO_ENUM_AVAILABLE, "vips-doc;7.12.4-2.fc8;noarch;linva", "The vips documentation package.");
+	pk_backend_job_finished (backend);
 }
 
 static void
 pk_test_backend_func_immediate_false (PkBackend *backend, gpointer user_data)
 {
-	pk_backend_finished (backend);
+	pk_backend_job_finished (backend);
 }
 
 /**
@@ -185,7 +186,7 @@ pk_test_backend_func (void)
 	/* connect */
 	pk_backend_set_vfunc (backend,
 				PK_BACKEND_SIGNAL_PACKAGE,
-				(PkBackendVFunc) pk_test_backend_package_cb,
+				(PkBackendJobVFunc) pk_test_backend_package_cb,
 				NULL);
 
 	/* create a config file */
@@ -210,11 +211,11 @@ pk_test_backend_func (void)
 
 	pk_backend_set_vfunc (backend,
 			      PK_BACKEND_SIGNAL_MESSAGE,
-			      (PkBackendVFunc) pk_test_backend_message_cb,
+			      (PkBackendJobVFunc) pk_test_backend_message_cb,
 			      NULL);
 	pk_backend_set_vfunc (backend,
 			      PK_BACKEND_SIGNAL_FINISHED,
-			      (PkBackendVFunc) pk_test_backend_finished_cb,
+			      (PkBackendJobVFunc) pk_test_backend_finished_cb,
 			      NULL);
 
 	/* get eula that does not exist */
@@ -266,11 +267,11 @@ pk_test_backend_func (void)
 	g_assert (ret);
 
 	/* check we are not finished */
-	ret = pk_backend_get_is_finished (backend);
+	ret = pk_backend_job_get_is_finished (backend);
 	g_assert (!ret);
 
 	/* check we have no error */
-	ret = pk_backend_has_set_error_code (backend);
+	ret = pk_backend_job_has_set_error_code (backend);
 	g_assert (!ret);
 
 	/* wait for a thread to return true */
@@ -290,7 +291,7 @@ pk_test_backend_func (void)
 	g_assert_cmpint (number_packages, ==, 1);
 
 	/* reset */
-	pk_backend_reset (backend);
+	pk_backend_job_reset (backend);
 
 	/* wait for a thread to return false (straight away) */
 	ret = pk_backend_thread_create (backend,
@@ -302,32 +303,32 @@ pk_test_backend_func (void)
 	/* wait for Finished */
 	_g_test_loop_wait (10);
 
-	pk_backend_reset (backend);
-	pk_backend_error_code (backend, PK_ERROR_ENUM_GPG_FAILURE, "test error");
+	pk_backend_job_reset (backend);
+	pk_backend_job_error_code (backend, PK_ERROR_ENUM_GPG_FAILURE, "test error");
 
 	/* wait for finished */
 //	_g_test_loop_run_with_timeout (PK_BACKEND_FINISHED_ERROR_TIMEOUT + 400);
 
 	/* get allow cancel after reset */
-	pk_backend_reset (backend);
-	ret = pk_backend_get_allow_cancel (backend);
+	pk_backend_job_reset (backend);
+	ret = pk_backend_job_get_allow_cancel (backend);
 	g_assert (!ret);
 
 	/* set allow cancel TRUE */
-	ret = pk_backend_set_allow_cancel (backend, TRUE);
+	ret = pk_backend_job_set_allow_cancel (backend, TRUE);
 	g_assert (ret);
 
 	/* set allow cancel TRUE (repeat) */
-	ret = pk_backend_set_allow_cancel (backend, TRUE);
+	ret = pk_backend_job_set_allow_cancel (backend, TRUE);
 	g_assert (!ret);
 
 	/* set allow cancel FALSE */
-	ret = pk_backend_set_allow_cancel (backend, FALSE);
+	ret = pk_backend_job_set_allow_cancel (backend, FALSE);
 	g_assert (ret);
 
 	/* set allow cancel FALSE (after reset) */
-	pk_backend_reset (backend);
-	ret = pk_backend_set_allow_cancel (backend, FALSE);
+	pk_backend_job_reset (backend);
+	ret = pk_backend_job_set_allow_cancel (backend, FALSE);
 	g_assert (ret);
 
 	/* if running in developer mode, then expect a Message */
@@ -500,9 +501,9 @@ pk_test_backend_spawn_func (void)
 
 	/* so we can count the returned packages */
 	pk_backend_set_vfunc (backend,
-			      PK_BACKEND_SIGNAL_PACKAGE,
-			      (PkBackendVFunc) pk_test_backend_spawn_package_cb,
-			      backend_spawn);
+				PK_BACKEND_SIGNAL_PACKAGE,
+				(PkBackendJobVFunc) pk_test_backend_spawn_package_cb,
+				backend_spawn);
 
 	/* needed to avoid an error */
 	ret = pk_backend_load (backend, NULL);
