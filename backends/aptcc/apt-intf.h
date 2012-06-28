@@ -43,7 +43,7 @@ class AptCacheFile;
 class AptIntf
 {
 public:
-    AptIntf(PkBackend *backend, bool &cancel);
+    AptIntf(PkBackendJob *job, bool &cancel);
     ~AptIntf();
 
     bool init();
@@ -204,7 +204,7 @@ public:
     /**
       *  Download and install packages
       */
-    bool installPackages(AptCacheFile &cache, bool simulating, bool downloadOnly);
+    bool installPackages(AptCacheFile &cache, PkBitfield flags, bool autoremove);
 
     /**
      *  Install a DEB file
@@ -237,7 +237,7 @@ public:
                     std::string directory, std::string &StoreFilename);
 
 private:
-    bool checkTrusted(pkgAcquire &fetcher, bool simulating);
+    bool checkTrusted(pkgAcquire &fetcher, PkBitfield flags);
     bool packageIsSupported(const pkgCache::VerIterator &verIter, string component);
     void tryToRemove(const pkgCache::VerIterator &ver,
                      pkgDepCache &Cache,
@@ -258,7 +258,7 @@ private:
     pkgCache::VerIterator findTransactionPackage(const std::string &name);
 
     AptCacheFile *m_cache;
-    PkBackend  *m_backend;
+    PkBackendJob  *m_job;
     bool       &m_cancel;
     struct stat m_restartStat;
 

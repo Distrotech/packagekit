@@ -34,7 +34,7 @@ class AptIntf;
 class AcqPackageKitStatus : public pkgAcquireStatus
 {
 public:
-    AcqPackageKitStatus(AptIntf *apt, PkBackend *backend, bool &cancelled);
+    AcqPackageKitStatus(AptIntf *apt, PkBackendJob *job, bool &cancelled);
 
     virtual bool MediaChange(string Media, string Drive);
     virtual void IMSHit(pkgAcquire::ItemDesc &Itm);
@@ -49,7 +49,7 @@ public:
     void addPackage(const pkgCache::VerIterator &ver);
 
 private:
-    PkBackend *m_backend;
+    PkBackendJob *m_job;
     unsigned long ID;
     bool &_cancelled;
 

@@ -73,7 +73,7 @@ void pk_backend_initialize(PkBackend *backend)
     setenv("APT_LISTCHANGES_FRONTEND", "debconf", 1);
 
     spawn = pk_backend_spawn_new();
-    pk_backend_spawn_set_job(spawn, backend);
+//     pk_backend_spawn_set_job(spawn, backend);
     pk_backend_spawn_set_name(spawn, "aptcc");
 }
 
@@ -1148,16 +1148,16 @@ void pk_backend_get_repo_list(PkBackend *backend, PkBitfield filters)
 /**
  * pk_backend_repo_enable:
  */
-void pk_backend_repo_enable(PkBackend *backend, const gchar *rid, gboolean enabled)
+void pk_backend_repo_enable(PkBackend *backend, PkBackendJob *job, const gchar *repo_id, gboolean enabled)
 {
     pk_backend_set_bool(backend, "list", false);
-    pk_backend_job_thread_create(backend, backend_repo_manager_thread, NULL, NULL);
+    pk_backend_job_thread_create(job, backend_repo_manager_thread, NULL, NULL);
 }
 
 static void backend_get_packages_thread(PkBackendJob *job, GVariant *params, gpointer user_data)
 {
     PkBitfield filters;
-    filters = (PkBitfield) pk_backend_get_uint(backend, "filters");
+    filters = (PkBitfield) pk_backend_get_uint(job, "filters");
     pk_backend_job_set_allow_cancel(job, true);
 
     AptIntf *apt = new AptIntf(backend, _cancel);
@@ -1181,9 +1181,9 @@ static void backend_get_packages_thread(PkBackendJob *job, GVariant *params, gpo
 /**
  * pk_backend_get_packages:
  */
-void pk_backend_get_packages(PkBackend *backend, PkBitfield filter)
+void pk_backend_get_packages(PkBackend *backend, PkBackendJob *job, PkBitfield filters)
 {
-    pk_backend_job_thread_create(backend, backend_get_packages_thread, NULL, NULL);
+    pk_backend_job_thread_create(job, backend_get_packages_thread, NULL, NULL);
 }
 
 
