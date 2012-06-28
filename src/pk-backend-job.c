@@ -100,6 +100,7 @@ struct PkBackendJobPrivate
 	GVariant		*params;
 	PkBackend		*backend;
 	PkBackendJobVFuncItem	 vfunc_items[PK_BACKEND_SIGNAL_LAST];
+	PkBitfield		 transaction_flags;
 	PkConf			*conf;
 	PkExitEnum		 exit;
 	PkHintEnum		 allow_cancel;
@@ -142,6 +143,28 @@ pk_backend_job_get_user_data (PkBackendJob *job)
 {
 	g_return_val_if_fail (PK_IS_BACKEND_JOB (job), NULL);
 	return job->priv->user_data;
+}
+
+/**
+ * pk_backend_job_get_transaction_flags:
+ **/
+PkBitfield
+pk_backend_job_get_transaction_flags (PkBackendJob *job)
+{
+	g_return_val_if_fail (PK_IS_BACKEND_JOB (job), 0);
+	return job->priv->transaction_flags;
+}
+
+
+/**
+ * pk_backend_job_set_transaction_flags:
+ **/
+void
+pk_backend_job_set_transaction_flags (PkBackendJob *job,
+				      PkBitfield transaction_flags)
+{
+	g_return_if_fail (PK_IS_BACKEND_JOB (job));
+	job->priv->transaction_flags = transaction_flags;
 }
 
 /**

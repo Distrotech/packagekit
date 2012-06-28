@@ -25,6 +25,7 @@
 #include <glib-object.h>
 
 #include "pk-shared.h"
+#include <packagekit-glib2/pk-bitfield.h>
 
 G_BEGIN_DECLS
 
@@ -83,6 +84,9 @@ void		 pk_backend_job_set_backend		(PkBackendJob	*job,
 gpointer	 pk_backend_job_get_user_data		(PkBackendJob	*job);
 void		 pk_backend_job_set_user_data		(PkBackendJob	*job,
 							 gpointer	 user_data);
+PkBitfield	 pk_backend_job_get_transaction_flags	(PkBackendJob	*job);
+void		 pk_backend_job_set_transaction_flags	(PkBackendJob	*job,
+							 PkBitfield	 transaction_flags);
 GVariant	*pk_backend_job_get_parameters		(PkBackendJob	*job);
 void		 pk_backend_job_set_parameters		(PkBackendJob	*job,
 							 GVariant	*params);

@@ -1120,6 +1120,7 @@ pk_backend_install_packages (PkBackend *backend,
 	g_return_if_fail (PK_IS_BACKEND (backend));
 	g_return_if_fail (backend->priv->desc->install_packages != NULL);
 	pk_backend_job_set_role (job, PK_ROLE_ENUM_INSTALL_PACKAGES);
+	pk_backend_job_set_transaction_flags (job, transaction_flags);
 	pk_backend_job_set_parameters (job, g_variant_new ("(t^as)",
 							   transaction_flags,
 							   package_ids));
@@ -1157,6 +1158,7 @@ pk_backend_install_files (PkBackend *backend,
 	g_return_if_fail (PK_IS_BACKEND (backend));
 	g_return_if_fail (backend->priv->desc->install_files != NULL);
 	pk_backend_job_set_role (job, PK_ROLE_ENUM_INSTALL_FILES);
+	pk_backend_job_set_transaction_flags (job, transaction_flags);
 	pk_backend_job_set_parameters (job, g_variant_new ("(t^as)",
 							   transaction_flags,
 							   full_paths));
@@ -1191,6 +1193,7 @@ pk_backend_remove_packages (PkBackend *backend,
 	g_return_if_fail (PK_IS_BACKEND (backend));
 	g_return_if_fail (backend->priv->desc->remove_packages != NULL);
 	pk_backend_job_set_role (job, PK_ROLE_ENUM_REMOVE_PACKAGES);
+	pk_backend_job_set_transaction_flags (job, transaction_flags);
 	pk_backend_job_set_parameters (job, g_variant_new ("(t^asbb)",
 							   transaction_flags,
 							   package_ids,
@@ -1302,6 +1305,7 @@ pk_backend_update_packages (PkBackend *backend, PkBackendJob *job, PkBitfield tr
 	g_return_if_fail (PK_IS_BACKEND (backend));
 	g_return_if_fail (backend->priv->desc->update_packages != NULL);
 	pk_backend_job_set_role (job, PK_ROLE_ENUM_UPDATE_PACKAGES);
+	pk_backend_job_set_transaction_flags (job, transaction_flags);
 	pk_backend_job_set_parameters (job, g_variant_new ("(t^as)",
 							   transaction_flags,
 							   package_ids));
@@ -1317,6 +1321,7 @@ pk_backend_update_system (PkBackend *backend, PkBackendJob *job, PkBitfield tran
 	g_return_if_fail (PK_IS_BACKEND (backend));
 	g_return_if_fail (backend->priv->desc->update_system != NULL);
 	pk_backend_job_set_role (job, PK_ROLE_ENUM_UPDATE_SYSTEM);
+	pk_backend_job_set_transaction_flags (job, transaction_flags);
 	pk_backend_job_set_parameters (job, g_variant_new ("(t)",
 							   transaction_flags));
 	backend->priv->desc->update_system (backend, job, transaction_flags);
@@ -1421,6 +1426,7 @@ pk_backend_repair_system (PkBackend *backend, PkBackendJob *job, PkBitfield tran
 	g_return_if_fail (PK_IS_BACKEND (backend));
 	g_return_if_fail (backend->priv->desc->repair_system != NULL);
 	pk_backend_job_set_role (job, PK_ROLE_ENUM_REPAIR_SYSTEM);
+	pk_backend_job_set_transaction_flags (job, transaction_flags);
 	pk_backend_job_set_parameters (job, g_variant_new ("(t)",
 							   transaction_flags));
 	backend->priv->desc->repair_system (backend, job, transaction_flags);
