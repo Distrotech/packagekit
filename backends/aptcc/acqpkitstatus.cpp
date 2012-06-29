@@ -27,10 +27,9 @@
 
 // AcqPackageKitStatus::AcqPackageKitStatus - Constructor
 // ---------------------------------------------------------------------
-AcqPackageKitStatus::AcqPackageKitStatus(AptIntf *apt, PkBackendJob *job, bool &cancelled) :
+AcqPackageKitStatus::AcqPackageKitStatus(AptIntf *apt, PkBackendJob *job) :
     m_apt(apt),
     m_job(job),
-    _cancelled(cancelled),
     m_lastPercent(PK_BACKEND_PERCENTAGE_INVALID)
 {
 }
@@ -193,7 +192,7 @@ bool AcqPackageKitStatus::Pulse(pkgAcquire *Owner)
 
     Update = false;
 
-    return !_cancelled;;
+    return !m_apt->cancelled();
 }
 
 // AcqPackageKitStatus::MediaChange - Media need to be swapped
@@ -215,8 +214,8 @@ bool AcqPackageKitStatus::MediaChange(string Media, string Drive)
             Drive.c_str());
 
     pk_backend_job_error_code(m_job,
-                          PK_ERROR_ENUM_MEDIA_CHANGE_REQUIRED,
-                          errorMsg);
+                              PK_ERROR_ENUM_MEDIA_CHANGE_REQUIRED,
+                              errorMsg);
 
     // Set this so we can fail the transaction
     Update = true;

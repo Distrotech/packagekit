@@ -49,9 +49,9 @@
 
 #define RAMFS_MAGIC     0x858458f6
 
-AptIntf::AptIntf(PkBackendJob *job, bool &cancel) :
+AptIntf::AptIntf(PkBackendJob *job) :
     m_job(job),
-    m_cancel(cancel),
+    m_cancel(false),
     m_terminalTimeout(120),
     m_lastSubProgress(0)
 {
@@ -141,6 +141,11 @@ void AptIntf::cancel()
     if (m_child_pid > 0) {
         kill(m_child_pid, SIGTERM);
     }
+}
+
+bool AptIntf::cancelled() const
+{
+    return m_cancel;
 }
 
 pkgCache::VerIterator AptIntf::findPackageId(const gchar *packageId)
@@ -783,7 +788,7 @@ void AptIntf::emitUpdateDetail(const pkgCache::VerIterator &candver)
                  pkgfilename.c_str());
     }
     // Create the download object
-    AcqPackageKitStatus Stat(this, m_job, m_cancel);
+    AcqPackageKitStatus Stat(this, m_job);
 
     // get a fetcher
     pkgAcquire fetcher;
@@ -1415,7 +1420,7 @@ bool AptIntf::packageIsSupported(const pkgCache::VerIterator &verIter, string co
     }
 
     // Get a fetcher
-    AcqPackageKitStatus Stat(this, m_job, m_cancel);
+    AcqPackageKitStatus Stat(this, m_job);
     Stat.addPackage(verIter);
     pkgAcquire fetcher;
     fetcher.Setup(&Stat);
@@ -2141,7 +2146,7 @@ PkgList AptIntf::resolvePackageIds(gchar **package_ids, PkBitfield filters)
 void AptIntf::refreshCache()
 {
     // Create the progress
-    AcqPackageKitStatus Stat(this, m_job, m_cancel);
+    AcqPackageKitStatus Stat(this, m_job);
 
     // do the work
     ListUpdate(Stat, *m_cache->GetSourceList());
@@ -2340,7 +2345,7 @@ bool AptIntf::installFile(const gchar *path, bool simulate)
     return true;
 }
 
-bool AptIntf::runTransaction(const PkgList &install, const PkgList &remove, bool simulate, bool markAuto, bool fixBroken, bool downloadOnly)
+bool AptIntf::runTransaction(const PkgList &install, const PkgList &remove, bool simulate, bool markAuto, bool fixBroken, PkBitfield flags, bool autoremove)
 {
     //cout << "runTransaction" << simulate << remove << endl;
     bool withLock = !simulate; // Check to see if we are just simulating,
@@ -2429,7 +2434,7 @@ bool AptIntf::runTransaction(const PkgList &install, const PkgList &remove, bool
 
     // If we are simulating the install packages
     // will just calculate the trusted packages
-    return installPackages(cache, simulate, downloadOnly);
+    return installPackages(cache, flags, autoremove);
 }
 
 /**
@@ -2481,7 +2486,7 @@ bool AptIntf::installPackages(AptCacheFile &cache, PkBitfield flags, bool autore
     }
 
     // Create the download object
-    AcqPackageKitStatus Stat(this, m_job, m_cancel);
+    AcqPackageKitStatus Stat(this, m_job);
 
     // get a fetcher
     pkgAcquire fetcher;

@@ -43,11 +43,12 @@ class AptCacheFile;
 class AptIntf
 {
 public:
-    AptIntf(PkBackendJob *job, bool &cancel);
+    AptIntf(PkBackendJob *job);
     ~AptIntf();
 
     bool init();
     void cancel();
+    bool cancelled() const;
 
     /**
      * Tries to find a package with the given packageId
@@ -100,7 +101,8 @@ public:
                         bool simulate,
                         bool markAuto,
                         bool fixBroken,
-                        bool downloadOnly);
+                        PkBitfield flags,
+                        bool autoremove);
 
     /**
      *  Get package depends
@@ -259,7 +261,7 @@ private:
 
     AptCacheFile *m_cache;
     PkBackendJob  *m_job;
-    bool       &m_cancel;
+    bool       m_cancel;
     struct stat m_restartStat;
 
     bool m_isMultiArch;

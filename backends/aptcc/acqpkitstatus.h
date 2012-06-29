@@ -34,7 +34,7 @@ class AptIntf;
 class AcqPackageKitStatus : public pkgAcquireStatus
 {
 public:
-    AcqPackageKitStatus(AptIntf *apt, PkBackendJob *job, bool &cancelled);
+    AcqPackageKitStatus(AptIntf *apt, PkBackendJob *job);
 
     virtual bool MediaChange(string Media, string Drive);
     virtual void IMSHit(pkgAcquire::ItemDesc &Itm);
@@ -51,7 +51,6 @@ public:
 private:
     PkBackendJob *m_job;
     unsigned long ID;
-    bool &_cancelled;
 
     unsigned long m_lastPercent;
     double        m_lastCPS;
@@ -59,7 +58,6 @@ private:
     AptIntf       *m_apt;
 
     PkgList m_packages;
-//     set<string> m_currentPackages;
 
     pkgCache::VerIterator findPackage(const std::string &name) const;
 };
