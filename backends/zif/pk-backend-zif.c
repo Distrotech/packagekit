@@ -2303,6 +2303,7 @@ static void
 pk_backend_get_requires_thread (PkBackendJob *job, GVariant *params, gpointer user_data)
 {
 	const gchar *id;
+	gboolean recursive;
 	gboolean ret;
 	gchar **package_ids;
 	GError *error = NULL;
@@ -2319,9 +2320,10 @@ pk_backend_get_requires_thread (PkBackendJob *job, GVariant *params, gpointer us
 	ZifState *state_loop;
 	PkBackendZifJobData *job_data = pk_backend_job_get_user_data (job);
 
-	g_variant_get (params, "(t^a&s)",
+	g_variant_get (params, "(t^a&sb)",
 		       &filters,
-		       &package_ids);
+		       &package_ids,
+		       &recursive);
 
 	/* set steps */
 	ret = zif_state_set_steps (job_data->state,
@@ -2332,6 +2334,10 @@ pk_backend_get_requires_thread (PkBackendJob *job, GVariant *params, gpointer us
 				   2, /* emit */
 				   -1);
 	g_assert (ret);
+
+	/* not supported yet */
+	if (recursive)
+		g_debug ("recursive is used for GetRequires()");
 
 	/* find all the packages */
 	state_local = zif_state_get_child (job_data->state);
@@ -2842,15 +2848,14 @@ pk_backend_get_files_thread (PkBackendJob *job, GVariant *params, gpointer user_
 	GPtrArray *store_array = NULL;
 	GString *files_str;
 	guint i, j;
-	PkBitfield filters;
+	PkBitfield filters = PK_FILTER_ENUM_UNKNOWN;
 	ZifPackage *package;
 	ZifState *state_local;
 	ZifState *state_loop;
 	ZifState *state_tmp;
 	PkBackendZifJobData *job_data = pk_backend_job_get_user_data (job);
 
-	g_variant_get (params, "(t^a&s)",
-		       &filters,
+	g_variant_get (params, "(^a&s)",
 		       &package_ids);
 
 	/* set steps */
