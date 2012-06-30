@@ -295,7 +295,10 @@ static void backend_get_files_thread(PkBackendJob *job, GVariant *params, gpoint
 
         const pkgCache::VerIterator &ver = apt->findPackageId(pi);
         if (ver.end()) {
-            pk_backend_job_error_code(job, PK_ERROR_ENUM_PACKAGE_NOT_FOUND, "Couldn't find package");
+            pk_backend_job_error_code(job,
+                                      PK_ERROR_ENUM_PACKAGE_NOT_FOUND,
+                                      "Couldn't find package %s",
+                                      pi);
             delete apt;
             return;
         }
@@ -742,6 +745,8 @@ static void pk_backend_resolve_thread(PkBackendJob *job, GVariant *params, gpoin
 
     // It's faster to emmit the packages here rather than in the matching part
     apt->emitPackages(pkgs, filters);
+
+    delete apt;
 }
 
 /**
@@ -894,7 +899,7 @@ static void backend_manage_packages_thread(PkBackendJob *job, GVariant *params, 
 {
     // Transaction flags
     PkBitfield transaction_flags;
-    bool remove = false;
+    bool allow_deps = false;
     bool autoremove = false;
     bool fileInstall = false;
     gchar **full_paths = NULL;
@@ -908,11 +913,11 @@ static void backend_manage_packages_thread(PkBackendJob *job, GVariant *params, 
                       &full_paths);
         fileInstall = true;
     } else if (role == PK_ROLE_ENUM_REMOVE_PACKAGES) {
-        g_variant_get(params, "(t^a&sb)",
+        g_variant_get(params, "(t^a&sbb)",
                       &transaction_flags,
                       &package_ids,
+                      &allow_deps,
                       &autoremove);
-        remove = true;
     } else if (role == PK_ROLE_ENUM_INSTALL_PACKAGES) {
         g_variant_get(params, "(t^a&s)",
                       &transaction_flags,
@@ -973,7 +978,7 @@ static void backend_manage_packages_thread(PkBackendJob *job, GVariant *params, 
 
     } else if (!fixBroken) {
         // Resolve the given packages
-        if (remove) {
+        if (role == PK_ROLE_ENUM_REMOVE_PACKAGES) {
             removePkgs = apt->resolvePackageIds(package_ids);
         } else {
             installPkgs = apt->resolvePackageIds(package_ids);

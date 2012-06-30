@@ -1917,7 +1917,7 @@ void AptIntf::updateInterface(int fd, int writeFd)
                     // Installing Package
                     // cout << "Found Configuring! " << line << endl;
                     if (m_lastSubProgress >= 100 && !m_lastPackage.empty()) {
-                        cout << "FINISH the last package: " << m_lastPackage << endl;
+                        // cout << "FINISH the last package: " << m_lastPackage << endl;
                         const pkgCache::VerIterator &ver = findTransactionPackage(m_lastPackage);
                         if (!ver.end()) {
                             emitPackage(ver, PK_INFO_ENUM_FINISHED);
@@ -2445,7 +2445,7 @@ bool AptIntf::installPackages(AptCacheFile &cache, PkBitfield flags, bool autore
 {
     //cout << "installPackages() called" << endl;
     // Try to auto-remove packages
-    if (!doAutomaticRemove(cache)) {
+    if (autoremove && !doAutomaticRemove(cache)) {
         // TODO
         return false;
     }
@@ -2537,33 +2537,6 @@ bool AptIntf::installPackages(AptCacheFile &cache, PkBitfield flags, bool autore
                                  OutputDir.c_str());
         }
     }
-
-    // Generate the list of affected packages
-//     for (pkgCache::PkgIterator pkg = cache->PkgBegin(); pkg.end() == false; ++pkg) {
-//         // Ignore no-version packages
-//         if (pkg->VersionList == 0) {
-//             continue;
-//         }
-// 
-//         // Not interesting
-//         if ((cache[pkg].Keep() == true ||
-//              cache[pkg].InstVerIter(cache) == pkg.CurrentVer()) &&
-//                 pkg.State() == pkgCache::PkgIterator::NeedsNothing &&
-//                 (cache[pkg].iFlags & pkgDepCache::ReInstall) != pkgDepCache::ReInstall &&
-//                 (pkg.Purge() != false || cache[pkg].Mode != pkgDepCache::ModeDelete ||
-//                  (cache[pkg].iFlags & pkgDepCache::Purge) != pkgDepCache::Purge)) {
-//             continue;
-//         }
-// 
-//         pkgCache::VerIterator ver = cache[pkg].InstVerIter(cache);
-//         if (ver.end() && (ver = m_cache->findCandidateVer(pkg))) {
-//             // Ignore invalid versions
-//             continue;
-//         }
-// 
-//         // Append it to the list
-//         Stat.addPackage(ver);
-//     }
 
     if (_error->PendingError() == true) {
         cout << "PendingError " << endl;
