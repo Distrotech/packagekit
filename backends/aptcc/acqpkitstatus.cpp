@@ -21,6 +21,7 @@
 #include "acqpkitstatus.h"
 
 #include "apt-intf.h"
+#include "pkg_acqfile.h"
 
 #include <apt-pkg/acquire-item.h>
 #include <apt-pkg/acquire-worker.h>
@@ -39,18 +40,20 @@ AcqPackageKitStatus::AcqPackageKitStatus(AptIntf *apt, PkBackendJob *job) :
 void AcqPackageKitStatus::Start()
 {
     pkgAcquireStatus::Start();
-    ID = 1;
 }
 
 // AcqPackageKitStatus::IMSHit - Called when an item got a HIT response	/*{{{*/
 // ---------------------------------------------------------------------
 void AcqPackageKitStatus::IMSHit(pkgAcquire::ItemDesc &Itm)
 {
-    if (m_packages.size() == 0) {
+    PkRoleEnum role = pk_backend_job_get_role(m_job);
+    if (role == PK_ROLE_ENUM_REFRESH_CACHE) {
         pk_backend_job_repo_detail(m_job,
-                               "",
-                               Itm.Description.c_str(),
-                               true);
+                                   "",
+                                   Itm.Description.c_str(),
+                                   true);
+    } else {
+        updateStatus(Itm, 100);
     }
     Update = true;
 }
@@ -60,11 +63,10 @@ void AcqPackageKitStatus::IMSHit(pkgAcquire::ItemDesc &Itm)
 /* This prints out the short description and the expected size */
 void AcqPackageKitStatus::Fetch(pkgAcquire::ItemDesc &Itm)
 {
-    Update = true;
-    if (Itm.Owner->Complete == true)
-        return;
+    // Download queued
+    updateStatus(Itm, 0);
 
-    Itm.Owner->ID = ID++;
+    Update = true;
 }
 
 // AcqPackageKitStatus::Done - Completed a download
@@ -72,6 +74,9 @@ void AcqPackageKitStatus::Fetch(pkgAcquire::ItemDesc &Itm)
 /* We don't display anything... */
 void AcqPackageKitStatus::Done(pkgAcquire::ItemDesc &Itm)
 {
+    // Download completed
+    updateStatus(Itm, 100);
+
     Update = true;
 }
 
@@ -80,6 +85,9 @@ void AcqPackageKitStatus::Done(pkgAcquire::ItemDesc &Itm)
 /* We print out the error text  */
 void AcqPackageKitStatus::Fail(pkgAcquire::ItemDesc &Itm)
 {
+    // TODO download failed
+    updateStatus(Itm, 0);
+
     // Ignore certain kinds of transient failures (bad code)
     if (Itm.Owner->Status == pkgAcquire::Item::StatIdle) {
         return;
@@ -87,11 +95,12 @@ void AcqPackageKitStatus::Fail(pkgAcquire::ItemDesc &Itm)
 
     if (Itm.Owner->Status == pkgAcquire::Item::StatDone)
     {
-        if (m_packages.size() == 0) {
+        PkRoleEnum role = pk_backend_job_get_role(m_job);
+        if (role == PK_ROLE_ENUM_REFRESH_CACHE) {
             pk_backend_job_repo_detail(m_job,
-                                   "",
-                                   Itm.Description.c_str(),
-                                   false);
+                                       "",
+                                       Itm.Description.c_str(),
+                                       false);
         }
     } else {
         // an error was found (maybe 404, 403...)
@@ -103,24 +112,6 @@ void AcqPackageKitStatus::Fail(pkgAcquire::ItemDesc &Itm)
 
     Update = true;
 }
-
-
-// AcqTextStatus::Stop - Finished downloading
-// ---------------------------------------------------------------------
-/* This prints out the bytes downloaded and the overall average line
-   speed */
-// void AcqPackageKitStatus::Stop()
-// {
-//     pkgAcquireStatus::Stop();
-//     // the items that still on the set are finished
-//     for (set<string>::iterator it = m_currentPackages.begin();
-//          it != currentPackages.end();
-//          it++ )
-//     {
-//         emit_package(*it, true);
-//     }
-// }
-
 
 // AcqPackageKitStatus::Pulse - Regular event pulse
 // ---------------------------------------------------------------------
@@ -149,36 +140,16 @@ bool AcqPackageKitStatus::Pulse(pkgAcquire *Owner)
     pk_backend_job_set_download_size_remaining(m_job, TotalBytes - CurrentBytes);
 
     for (pkgAcquire::Worker *I = Owner->WorkersBegin(); I != 0;
-         I = Owner->WorkerStep(I))
-    {
-        // Check if there is no item running or if we don't have
-        // any packages set we are probably refreshing the cache
-        if (I->CurrentItem == 0 || m_packages.size() == 0) {
+         I = Owner->WorkerStep(I)) {
+        if (I->CurrentItem == 0){
             continue;
         }
 
-        // Try to find the package in question
-        pkgCache::VerIterator ver;
-        ver = findPackage(I->CurrentItem->ShortDesc);
-        if (ver.end() == true) {
-            continue;
-        }
-
-        if (I->CurrentItem->Owner->Complete == true) {
-            // emit the package as finished
-            m_apt->emitPackage(ver, PK_INFO_ENUM_FINISHED);
+        if (I->TotalSize > 0) {
+            updateStatus(*I->CurrentItem,
+                         long(double(I->CurrentSize * 100.0) / double(I->TotalSize)));
         } else {
-            // emit the package
-            m_apt->emitPackage(ver, PK_INFO_ENUM_DOWNLOADING);
-
-            // Add the total size and percent
-            if (I->TotalSize > 0) {
-                unsigned long sub_percent;
-                sub_percent = long(double(I->CurrentSize*100.0)/double(I->TotalSize));
-
-                // Emit the individual progress
-                m_apt->emitPackageProgress(ver, static_cast<uint>(sub_percent));
-            }
+            updateStatus(*I->CurrentItem, 100);
         }
     }
 
@@ -222,21 +193,23 @@ bool AcqPackageKitStatus::MediaChange(string Media, string Drive)
     return false;
 }
 
-
-void AcqPackageKitStatus::addPackage(const pkgCache::VerIterator &ver)
-{
-    m_packages.push_back(ver);
-}
-
-pkgCache::VerIterator AcqPackageKitStatus::findPackage(const std::string &name) const
-{
-    pkgCache::VerIterator ver;
-    for (PkgList::const_iterator i = m_packages.begin(); i != m_packages.end(); ++i) {
-        // try to see if any package matches
-        if (name.compare(i->ParentPkg().Name()) == 0) {
-            ver = *i;
-            break;
-        }
+void AcqPackageKitStatus::updateStatus(pkgAcquire::ItemDesc & Itm, int status)
+{   
+    // The pkgAcquire::Item had a version hiden on it's subclass
+    // pkgAcqArchive but it was protected our subclass exposes that
+    pkgAcqArchiveSane *archive = static_cast<pkgAcqArchiveSane*>(Itm.Owner);
+    const pkgCache::VerIterator ver = archive->version();
+    if (ver.end() == true) {
+        return;
     }
-    return ver;
+
+    if (status == 100) {
+        m_apt->emitPackage(ver, PK_INFO_ENUM_FINISHED);
+    } else {
+        // emit the package
+        m_apt->emitPackage(ver, PK_INFO_ENUM_DOWNLOADING);
+        
+        // Emit the individual progress
+        m_apt->emitPackageProgress(ver, status);
+    }
 }

@@ -42,24 +42,17 @@ public:
     virtual void Done(pkgAcquire::ItemDesc &Itm);
     virtual void Fail(pkgAcquire::ItemDesc &Itm);
     virtual void Start();
-//     virtual void Stop();
 
     bool Pulse(pkgAcquire *Owner);
 
-    void addPackage(const pkgCache::VerIterator &ver);
-
 private:
+    void updateStatus(pkgAcquire::ItemDesc & Itm, int status);
+
     PkBackendJob *m_job;
-    unsigned long ID;
 
     unsigned long m_lastPercent;
     double        m_lastCPS;
-    string        m_lastPackageName;
     AptIntf       *m_apt;
-
-    PkgList m_packages;
-
-    pkgCache::VerIterator findPackage(const std::string &name) const;
 };
 
 #endif

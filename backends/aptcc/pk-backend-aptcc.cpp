@@ -624,11 +624,12 @@ static void pk_backend_download_packages_thread(PkBackendJob *job, GVariant *par
             }
 
             string storeFileName;
-            if (apt->getArchive(&fetcher,
-                                ver,
-                                directory,
-                                storeFileName)) {
-                Stat.addPackage(ver);
+            if (!apt->getArchive(&fetcher,
+                                 ver,
+                                 directory,
+                                 storeFileName)) {
+                delete apt;
+                return;
             }
             string destFile = directory + "/" + flNotDir(storeFileName);
             if (filelist.empty()) {

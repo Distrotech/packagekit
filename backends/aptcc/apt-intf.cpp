@@ -345,9 +345,9 @@ void AptIntf::emitPackage(const pkgCache::VerIterator &ver, PkInfoEnum state)
     gchar *package_id;
     package_id = utilBuildPackageId(ver);
     pk_backend_job_package(m_job,
-                       state,
-                       package_id,
-                       m_cache->getShortDescription(ver).c_str());
+                           state,
+                           package_id,
+                           m_cache->getShortDescription(ver).c_str());
     g_free(package_id);
 }
 
@@ -1421,7 +1421,6 @@ bool AptIntf::packageIsSupported(const pkgCache::VerIterator &verIter, string co
 
     // Get a fetcher
     AcqPackageKitStatus Stat(this, m_job);
-    Stat.addPackage(verIter);
     pkgAcquire fetcher;
     fetcher.Setup(&Stat);
 
@@ -2541,31 +2540,31 @@ bool AptIntf::installPackages(AptCacheFile &cache, PkBitfield flags, bool autore
     }
 
     // Generate the list of affected packages
-    for (pkgCache::PkgIterator pkg = cache->PkgBegin(); pkg.end() == false; ++pkg) {
-        // Ignore no-version packages
-        if (pkg->VersionList == 0) {
-            continue;
-        }
-
-        // Not interesting
-        if ((cache[pkg].Keep() == true ||
-             cache[pkg].InstVerIter(cache) == pkg.CurrentVer()) &&
-                pkg.State() == pkgCache::PkgIterator::NeedsNothing &&
-                (cache[pkg].iFlags & pkgDepCache::ReInstall) != pkgDepCache::ReInstall &&
-                (pkg.Purge() != false || cache[pkg].Mode != pkgDepCache::ModeDelete ||
-                 (cache[pkg].iFlags & pkgDepCache::Purge) != pkgDepCache::Purge)) {
-            continue;
-        }
-
-        pkgCache::VerIterator ver = cache[pkg].InstVerIter(cache);
-        if (ver.end() && (ver = m_cache->findCandidateVer(pkg))) {
-            // Ignore invalid versions
-            continue;
-        }
-
-        // Append it to the list
-        Stat.addPackage(ver);
-    }
+//     for (pkgCache::PkgIterator pkg = cache->PkgBegin(); pkg.end() == false; ++pkg) {
+//         // Ignore no-version packages
+//         if (pkg->VersionList == 0) {
+//             continue;
+//         }
+// 
+//         // Not interesting
+//         if ((cache[pkg].Keep() == true ||
+//              cache[pkg].InstVerIter(cache) == pkg.CurrentVer()) &&
+//                 pkg.State() == pkgCache::PkgIterator::NeedsNothing &&
+//                 (cache[pkg].iFlags & pkgDepCache::ReInstall) != pkgDepCache::ReInstall &&
+//                 (pkg.Purge() != false || cache[pkg].Mode != pkgDepCache::ModeDelete ||
+//                  (cache[pkg].iFlags & pkgDepCache::Purge) != pkgDepCache::Purge)) {
+//             continue;
+//         }
+// 
+//         pkgCache::VerIterator ver = cache[pkg].InstVerIter(cache);
+//         if (ver.end() && (ver = m_cache->findCandidateVer(pkg))) {
+//             // Ignore invalid versions
+//             continue;
+//         }
+// 
+//         // Append it to the list
+//         Stat.addPackage(ver);
+//     }
 
     if (_error->PendingError() == true) {
         cout << "PendingError " << endl;
