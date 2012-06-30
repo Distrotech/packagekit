@@ -194,7 +194,13 @@ bool AcqPackageKitStatus::MediaChange(string Media, string Drive)
 }
 
 void AcqPackageKitStatus::updateStatus(pkgAcquire::ItemDesc & Itm, int status)
-{   
+{
+    PkRoleEnum role = pk_backend_job_get_role(m_job);
+    if (role == PK_ROLE_ENUM_REFRESH_CACHE) {
+        // Ignore package update when refreshing the cache
+        return;
+    }
+
     // The pkgAcquire::Item had a version hiden on it's subclass
     // pkgAcqArchive but it was protected our subclass exposes that
     pkgAcqArchiveSane *archive = static_cast<pkgAcqArchiveSane*>(Itm.Owner);
