@@ -938,7 +938,6 @@ void AptIntf::emitUpdateDetail(const pkgCache::VerIterator &candver)
                              updated.c_str() //const gchar *updated_text
                              );
 
-    g_free(current_package_id);
     g_free(package_id);
     g_strfreev(updates);
     g_ptr_array_unref(bugzilla_urls);
