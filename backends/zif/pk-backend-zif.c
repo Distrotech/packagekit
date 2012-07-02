@@ -2078,6 +2078,7 @@ static void
 pk_backend_get_depends_thread (PkBackendJob *job, GVariant *params, gpointer user_data)
 {
 	const gchar *id;
+	gboolean recursive;
 	gboolean ret;
 	gchar **package_ids;
 	GError *error = NULL;
@@ -2094,9 +2095,14 @@ pk_backend_get_depends_thread (PkBackendJob *job, GVariant *params, gpointer use
 	ZifState *state_loop;
 	PkBackendZifJobData *job_data = pk_backend_job_get_user_data (job);
 
-	g_variant_get (params, "(t^a&s)",
+	g_variant_get (params, "(t^a&sb)",
 		       &filters,
-		       &package_ids);
+		       &package_ids,
+		       &recursive);
+
+	/* not supported yet */
+	if (recursive)
+		g_warning ("recursive is not implemented for GetDepends()");
 
 	/* set steps */
 	ret = zif_state_set_steps (job_data->state,
@@ -2337,7 +2343,7 @@ pk_backend_get_requires_thread (PkBackendJob *job, GVariant *params, gpointer us
 
 	/* not supported yet */
 	if (recursive)
-		g_debug ("recursive is used for GetRequires()");
+		g_warning ("recursive is not implemented for GetRequires()");
 
 	/* find all the packages */
 	state_local = zif_state_get_child (job_data->state);
@@ -3860,6 +3866,7 @@ out:
 static void
 pk_backend_remove_packages_thread (PkBackendJob *job, GVariant *params, gpointer user_data)
 {
+	gboolean allow_deps;
 	gboolean autoremove;
 	gboolean ret;
 	gchar **package_ids;
@@ -3875,9 +3882,10 @@ pk_backend_remove_packages_thread (PkBackendJob *job, GVariant *params, gpointer
 	pk_backend_job_set_status (job, PK_STATUS_ENUM_QUERY);
 	pk_backend_job_set_percentage (job, 0);
 
-	g_variant_get (params, "(t^a&sb)",
+	g_variant_get (params, "(t^a&sbb)",
 		       &transaction_flags,
 		       &package_ids,
+		       &allow_deps,
 		       &autoremove);
 
 	/* setup steps */
@@ -3892,6 +3900,10 @@ pk_backend_remove_packages_thread (PkBackendJob *job, GVariant *params, gpointer
 	zif_config_set_boolean (priv->config,
 				"clean_requirements_on_remove",
 				autoremove, NULL);
+
+	/* not supported */
+	if (!allow_deps)
+		g_warning ("!allow-deps not supported for RemovePackages()");
 
 	state_local = zif_state_get_child (job_data->state);
 	zif_state_set_number_steps (state_local, g_strv_length (package_ids));
