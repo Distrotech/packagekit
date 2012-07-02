@@ -972,9 +972,11 @@ pk_transaction_plugin_phase (PkTransaction *transaction,
 	}
 out:
 	/* set this to a know state in case the plugin misbehaves */
-	pk_transaction_set_signals (transaction,
-				    transaction->priv->job,
-				    backend_signals);
+	if (transaction->priv->job != NULL) {
+		pk_transaction_set_signals (transaction,
+					    transaction->priv->job,
+					    backend_signals);
+	}
 	if (!ran_one)
 		g_debug ("no plugins provided %s", function);
 }
@@ -2006,6 +2008,9 @@ pk_transaction_set_signals (PkTransaction *transaction,
 			    PkBackendJob *job,
 			    PkBitfield backend_signals)
 {
+	g_return_if_fail (PK_IS_TRANSACTION (transaction));
+	g_return_if_fail (PK_IS_BACKEND_JOB (job));
+
 	if (pk_bitfield_contain (backend_signals, PK_BACKEND_SIGNAL_ALLOW_CANCEL)) {
 		pk_backend_job_set_vfunc (job,
 					PK_BACKEND_SIGNAL_ALLOW_CANCEL,
