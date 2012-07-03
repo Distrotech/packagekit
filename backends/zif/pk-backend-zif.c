@@ -1,6 +1,6 @@
 /* -*- Mode: C; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*-
  *
- * Copyright (C) 2007-2010 Richard Hughes <richard@hughsie.com>
+ * Copyright (C) 2007-2012 Richard Hughes <richard@hughsie.com>
  *
  * Licensed under the GNU General Public License Version 2
  *
@@ -1638,6 +1638,9 @@ pk_backend_job_stop (PkBackend *backend, PkBackendJob *job)
 	if (job_data->state != NULL)
 		g_object_unref (job_data->state);
 	g_free (job_data);
+
+	/* make debugging easier */
+	pk_backend_job_set_user_data (job, NULL);
 }
 
 /**
