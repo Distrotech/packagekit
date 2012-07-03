@@ -93,7 +93,6 @@ struct PkBackendJobPrivate
 	guint			 download_files;
 	guint			 percentage;
 	guint			 remaining;
-	guint			 signal_error_timeout;
 	guint			 signal_finished;
 	guint			 speed;
 	guint			 uid;
@@ -1057,12 +1056,6 @@ pk_backend_job_finished_real (PkBackendJob *job)
 				    "Backends should send multiple Files() for each package_id!");
 	}
 
-	/* if we set an error code notifier, clear */
-	if (job->priv->signal_error_timeout != 0) {
-		g_source_remove (job->priv->signal_error_timeout);
-		job->priv->signal_error_timeout = 0;
-	}
-
 	/* check we sent at least one status calls */
 	if (job->priv->set_error == FALSE &&
 	    job->priv->status == PK_STATUS_ENUM_SETUP) {
@@ -1755,46 +1748,6 @@ out:
 }
 
 /**
- * pk_backend_error_timeout_delay_cb:
- *
- * We have to call Finished() within PK_BACKEND_FINISHED_ERROR_TIMEOUT of ErrorCode(), enforce this.
- **/
-static gboolean
-pk_backend_error_timeout_delay_cb (gpointer data)
-{
-	PkBackendJob *job = PK_BACKEND_JOB (data);
-	PkMessage *item = NULL;
-
-	/* check we have not already finished */
-	if (job->priv->finished) {
-		g_warning ("consistency error");
-		goto out;
-	}
-
-	/* form PkMessage struct */
-	item = pk_message_new ();
-	g_object_set (item,
-		      "type", PK_MESSAGE_ENUM_BACKEND_ERROR,
-		      "details", "ErrorCode() has to be followed immediately with Finished()!\n"
-		      "Failure to do so, results in PK assuming the thread has hung, and desparately "
-		      " starting another backend thread to process future requests: be warned, "
-		      " your code is about to break in exotic ways.",
-		      NULL);
-
-	/* warn the backend developer that they've done something worng
-	 * - we can't use pk_backend_job_message here as we have already set
-	 * job->priv->set_error to TRUE and hence the message would be ignored */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_MESSAGE, G_OBJECT (item));
-
-	pk_backend_job_finished (job);
-out:
-	if (item != NULL)
-		g_object_unref (item);
-	job->priv->signal_error_timeout = 0;
-	return FALSE;
-}
-
-/**
  * pk_backend_job_error_code_is_need_untrusted:
  **/
 static gboolean
@@ -1840,11 +1793,6 @@ pk_backend_job_error_code (PkBackendJob *job,
 		goto out;
 	}
 	job->priv->set_error = TRUE;
-
-	/* we only allow a short time to send finished after error_code */
-	job->priv->signal_error_timeout = g_timeout_add (PK_BACKEND_FINISHED_ERROR_TIMEOUT,
-							     pk_backend_error_timeout_delay_cb, job);
-	g_source_set_name_by_id (job->priv->signal_error_timeout, "[PkBackendJob] error-code");
 
 	/* some error codes have a different exit code */
 	need_untrusted = pk_backend_job_error_code_is_need_untrusted (error_code);
