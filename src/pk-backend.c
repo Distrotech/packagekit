@@ -39,7 +39,6 @@
 #include "pk-marshal.h"
 #include "pk-backend.h"
 #include "pk-conf.h"
-#include "pk-store.h"
 #include "pk-shared.h"
 #include "pk-notify.h"
 
@@ -197,7 +196,6 @@ struct PkBackendPrivate
 	PkConf			*conf;
 	GFileMonitor		*monitor;
 	PkNetwork		*network;
-	PkStore			*store;
 };
 
 G_DEFINE_TYPE (PkBackend, pk_backend, G_TYPE_OBJECT)
@@ -929,7 +927,6 @@ pk_backend_finalize (GObject *object)
 	g_free (backend->priv->name);
 
 	g_object_unref (backend->priv->network);
-	g_object_unref (backend->priv->store);
 	g_object_unref (backend->priv->conf);
 	g_hash_table_destroy (backend->priv->eulas);
 
@@ -1440,7 +1437,6 @@ pk_backend_init (PkBackend *backend)
 {
 	backend->priv = PK_BACKEND_GET_PRIVATE (backend);
 	backend->priv->conf = pk_conf_new ();
-	backend->priv->store = pk_store_new ();
 	backend->priv->network = pk_network_new ();
 	backend->priv->eulas = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
 }
