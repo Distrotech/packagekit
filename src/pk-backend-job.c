@@ -1038,16 +1038,6 @@ pk_backend_job_finished_real (PkBackendJob *job)
 		return FALSE;
 	}
 
-	/* check we got a Package() else the UI will suck */
-	if (!job->priv->set_error &&
-	    !job->priv->has_sent_package &&
-	    (job->priv->role == PK_ROLE_ENUM_INSTALL_PACKAGES ||
-	     job->priv->role == PK_ROLE_ENUM_REMOVE_PACKAGES ||
-	     job->priv->role == PK_ROLE_ENUM_UPDATE_PACKAGES)) {
-		pk_backend_job_message (job, PK_MESSAGE_ENUM_BACKEND_ERROR,
-				    "Backends should send a Package() for %s!", role_text);
-	}
-
 	/* ensure the same number of ::Files() were sent as packages for DownloadPackages */
 	if (!job->priv->set_error &&
 	    job->priv->role == PK_ROLE_ENUM_DOWNLOAD_PACKAGES &&
