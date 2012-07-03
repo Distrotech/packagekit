@@ -668,36 +668,13 @@ pk_backend_job_reset (PkBackend *backend, PkBackendJob *job)
 	g_return_if_fail (PK_IS_BACKEND (backend));
 
 	/* optional */
-	if (backend->priv->desc->job_stop != NULL)
+	if (backend->priv->desc->job_reset != NULL) {
+		backend->priv->desc->job_reset (backend, job);
+	} else if (backend->priv->desc->job_stop != NULL &&
+		   backend->priv->desc->job_start != NULL) {
 		backend->priv->desc->job_stop (backend, job);
-#if 0
-	/* we can't reset when we are running */
-	if (backend->priv->status == PK_STATUS_ENUM_RUNNING) {
-		g_warning ("cannot reset when running");
-		return;
+		backend->priv->desc->job_start (backend, job);
 	}
-
-	/* do finish now, as we might be unreffing quickly */
-	if (backend->priv->signal_finished != 0) {
-		g_source_remove (backend->priv->signal_finished);
-		g_debug ("doing unref quickly delay");
-		pk_backend_job_finished_delay (backend);
-	}
-
-	/* if we set an error code notifier, clear */
-	if (backend->priv->signal_error_timeout != 0) {
-		g_source_remove (backend->priv->signal_error_timeout);
-		backend->priv->signal_error_timeout = 0;
-	}
-
-	pk_store_reset (backend->priv->store);
-
-	/* clear monitor */
-	if (backend->priv->monitor != NULL) {
-		g_object_unref (backend->priv->monitor);
-		backend->priv->monitor = NULL;
-	}
-#endif
 }
 
 /**
