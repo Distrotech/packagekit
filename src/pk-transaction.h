@@ -82,6 +82,7 @@ void		 pk_transaction_set_backend			(PkTransaction	*transaction,
 								 PkBackend	*backend);
 PkResults	*pk_transaction_get_results			(PkTransaction	*transaction);
 gchar		**pk_transaction_get_package_ids		(PkTransaction	*transaction);
+PkBitfield	 pk_transaction_get_transaction_flags		(PkTransaction	*transaction);
 void		 pk_transaction_set_package_ids			(PkTransaction	*transaction,
 								 gchar		**package_ids);
 gchar		**pk_transaction_get_values			(PkTransaction	*transaction);
@@ -100,7 +101,8 @@ void		 pk_transaction_set_plugins			(PkTransaction	*transaction,
 								 GPtrArray	*plugins);
 void		 pk_transaction_set_supported_roles		(PkTransaction	*transaction,
 								 GPtrArray	*plugins);
-void		 pk_transaction_set_signals			(PkTransaction *transaction,
+void		 pk_transaction_set_signals			(PkTransaction	*transaction,
+								 PkBackendJob	*job,
 								 PkBitfield backend_signals);
 void		 pk_transaction_reset_after_lock_error		(PkTransaction *transaction);
 

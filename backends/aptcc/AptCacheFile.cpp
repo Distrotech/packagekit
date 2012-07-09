@@ -26,9 +26,9 @@
 #include <sstream>
 #include <cstdio>
 
-AptCacheFile::AptCacheFile(PkBackend *backend) :
+AptCacheFile::AptCacheFile(PkBackendJob *job) :
     m_packageRecords(0),
-    m_backend(backend)
+    m_job(job)
 {
 }
 
@@ -39,7 +39,7 @@ AptCacheFile::~AptCacheFile()
 
 bool AptCacheFile::Open(bool withLock)
 {
-    OpPackageKitProgress progress(m_backend);
+    OpPackageKitProgress progress(m_job);
     return pkgCacheFile::Open(&progress, withLock);
 }
 
@@ -58,7 +58,7 @@ void AptCacheFile::Close()
 
 bool AptCacheFile::BuildCaches(bool withLock)
 {
-    OpPackageKitProgress progress(m_backend);
+    OpPackageKitProgress progress(m_job);
     return pkgCacheFile::BuildCaches(&progress, withLock);
 }
 
@@ -230,7 +230,7 @@ void AptCacheFile::ShowBroken(bool Now, PkErrorEnum error)
             }
         }
     }
-    pk_backend_error_code(m_backend, error, utf8(out.str().c_str()));
+    pk_backend_job_error_code(m_job, error, utf8(out.str().c_str()));
 }
 
 void AptCacheFile::buildPkgRecords()
@@ -249,16 +249,6 @@ pkgCache::VerIterator AptCacheFile::findCandidateVer(const pkgCache::PkgIterator
     return (*this)[pkg].CandidateVerIter(*this);
 }
 
-std::string AptCacheFile::getDefaultShortDescription(const pkgCache::VerIterator &ver)
-{
-    if (ver.end() || ver.FileList().end() || GetPkgRecords() == 0) {
-        return string();
-    }
-
-    pkgCache::VerFileIterator vf = ver.FileList();
-    return m_packageRecords->Lookup(vf).ShortDesc();
-}
-
 std::string AptCacheFile::getShortDescription(const pkgCache::VerIterator &ver)
 {
     if (ver.end() || ver.FileList().end() || GetPkgRecords() == 0) {
@@ -275,21 +265,6 @@ std::string AptCacheFile::getShortDescription(const pkgCache::VerIterator &ver)
         return string();
     } else {
         return m_packageRecords->Lookup(df).ShortDesc();
-    }
-}
-
-std::string AptCacheFile::getDefaultLongDescription(const pkgCache::VerIterator &ver)
-{
-    if(ver.end() || ver.FileList().end() || GetPkgRecords() == 0) {
-        return string();
-    }
-
-    pkgCache::VerFileIterator vf = ver.FileList();
-
-    if (vf.end()) {
-        return string();
-    } else {
-        return m_packageRecords->Lookup(vf).LongDesc();
     }
 }
 

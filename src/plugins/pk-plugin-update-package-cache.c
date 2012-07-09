@@ -73,7 +73,7 @@ pk_plugin_destroy (PkPlugin *plugin)
  * pk_plugin_package_cb:
  **/
 static void
-pk_plugin_package_cb (PkBackend *backend,
+pk_plugin_package_cb (PkBackendJob *job,
 		      PkPackage *package,
 		      PkPlugin *plugin)
 {
@@ -84,7 +84,7 @@ pk_plugin_package_cb (PkBackend *backend,
  * pk_plugin_details_cb:
  **/
 static void
-pk_plugin_details_cb (PkBackend *backend,
+pk_plugin_details_cb (PkBackendJob *job,
 			PkDetails *item,
 			PkPlugin *plugin)
 {
@@ -134,7 +134,7 @@ out:
  * pk_plugin_finished_cb:
  **/
 static void
-pk_plugin_finished_cb (PkBackend *backend,
+pk_plugin_finished_cb (PkBackendJob *job,
 		       PkExitEnum exit_enum,
 		       PkPlugin *plugin)
 {
@@ -211,7 +211,6 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	GError *error = NULL;
 	PkConf *conf;
 	PkRoleEnum role;
-	guint finished_sig_id = 0;
 	PkBitfield backend_signals;
 
 	PkPackageCache *cache = NULL;
@@ -246,18 +245,20 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	pk_bitfield_remove (backend_signals, PK_BACKEND_SIGNAL_DETAILS);
 	pk_bitfield_remove (backend_signals, PK_BACKEND_SIGNAL_PACKAGE);
 	pk_bitfield_remove (backend_signals, PK_BACKEND_SIGNAL_FINISHED);
-	pk_transaction_set_signals (transaction, backend_signals);
+	pk_transaction_set_signals (transaction, plugin->job, backend_signals);
 
 	/* connect backend */
-	finished_sig_id = g_signal_connect (plugin->backend, "finished",
-					G_CALLBACK (pk_plugin_finished_cb), plugin);
-	pk_backend_set_vfunc (plugin->backend,
-			      PK_BACKEND_SIGNAL_PACKAGE,
-			      (PkBackendVFunc) pk_plugin_package_cb,
+	pk_backend_job_set_vfunc (plugin->job,
+			      PK_BACKEND_SIGNAL_FINISHED,
+			      (PkBackendJobVFunc) pk_plugin_finished_cb,
 			      plugin);
-	pk_backend_set_vfunc (plugin->backend,
+	pk_backend_job_set_vfunc (plugin->job,
+			      PK_BACKEND_SIGNAL_PACKAGE,
+			      (PkBackendJobVFunc) pk_plugin_package_cb,
+			      plugin);
+	pk_backend_job_set_vfunc (plugin->job,
 			      PK_BACKEND_SIGNAL_DETAILS,
-			      (PkBackendVFunc) pk_plugin_details_cb,
+			      (PkBackendJobVFunc) pk_plugin_details_cb,
 			      plugin);
 
 	g_debug ("plugin: rebuilding package cache");
@@ -266,19 +267,19 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	pk_package_sack_clear (priv->sack);
 
 	/* update UI */
-	pk_backend_set_status (plugin->backend,
+	pk_backend_job_set_status (plugin->job,
 			       PK_STATUS_ENUM_GENERATE_PACKAGE_LIST);
-	pk_backend_set_percentage (plugin->backend, 101);
+	pk_backend_job_set_percentage (plugin->job, 101);
 
 	/* get the new package list */
-	pk_backend_reset (plugin->backend);
-	pk_backend_get_packages (plugin->backend, PK_FILTER_ENUM_NONE);
+	pk_backend_reset_job (plugin->backend, plugin->job);
+	pk_backend_get_packages (plugin->backend, plugin->job, PK_FILTER_ENUM_NONE);
 
 	/* wait for finished */
 	g_main_loop_run (priv->loop);
 
 	/* update UI */
-	pk_backend_set_percentage (plugin->backend, 90);
+	pk_backend_job_set_percentage (plugin->job, 90);
 
 	/* create & save legacy package-list */
 	pkg_array = pk_package_sack_get_array (priv->sack);
@@ -287,17 +288,17 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 
 	if (!update_cache) {
 		/* update UI (finished) */
-		pk_backend_set_percentage (plugin->backend, 100);
-		pk_backend_set_status (plugin->backend, PK_STATUS_ENUM_FINISHED);
+		pk_backend_job_set_percentage (plugin->job, 100);
+		pk_backend_job_set_status (plugin->job, PK_STATUS_ENUM_FINISHED);
 		goto out;
 	}
 
 	/* fetch package details too, if possible */
 	if (pk_backend_is_implemented (plugin->backend,
 	    PK_ROLE_ENUM_GET_DETAILS)) {
-		pk_backend_reset (plugin->backend);
+		pk_backend_reset_job (plugin->backend, plugin->job);
 		package_ids = pk_package_sack_get_ids (priv->sack);
-		pk_backend_get_details (plugin->backend, package_ids);
+		pk_backend_get_details (plugin->backend, plugin->job, package_ids);
 
 		/* wait for finished */
 		g_main_loop_run (priv->loop);
@@ -339,16 +340,10 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	}
 
 	/* update UI (finished) */
-	pk_backend_set_percentage (plugin->backend, 100);
-	pk_backend_set_status (plugin->backend, PK_STATUS_ENUM_FINISHED);
+	pk_backend_job_set_percentage (plugin->job, 100);
+	pk_backend_job_set_status (plugin->job, PK_STATUS_ENUM_FINISHED);
 
 out:
-	if (finished_sig_id != 0) {
-		g_signal_handler_disconnect (plugin->backend, finished_sig_id);
-		pk_backend_set_vfunc (plugin->backend, PK_BACKEND_SIGNAL_PACKAGE, NULL, NULL);
-		pk_backend_set_vfunc (plugin->backend, PK_BACKEND_SIGNAL_DETAILS, NULL, NULL);
-	}
-
 	if (cache != NULL) {
 		g_clear_error (&error);
 		ret = pk_package_cache_close (cache, FALSE, &error);

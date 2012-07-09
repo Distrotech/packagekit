@@ -67,7 +67,7 @@
 #include "pk-transaction-private.h"
 #include "pk-transaction-list.h"
 
-static void     pk_transaction_list_finalize	(GObject        *object);
+static void     pk_transaction_list_finalize	(GObject	*object);
 
 #define PK_TRANSACTION_LIST_GET_PRIVATE(o) (G_TYPE_INSTANCE_GET_PRIVATE ((o), PK_TYPE_TRANSACTION_LIST, PkTransactionListPrivate))
 
@@ -310,41 +310,17 @@ static gboolean
 pk_transaction_list_run_idle_cb (PkTransactionItem *item)
 {
 	gboolean ret;
-	GError *error = NULL;
-	PkBackend *backend = NULL;
-	PkRoleEnum role;
-
-	g_debug ("actually running %s", item->tid);
-
-	/* load a new backend if the master is busy */
-	ret = pk_backend_get_is_finished (item->list->priv->backend);
-	role = pk_backend_get_role (item->list->priv->backend);
-	if (ret || role == PK_ROLE_ENUM_UNKNOWN) {
-		pk_transaction_set_backend (item->transaction,
-					    item->list->priv->backend);
-	} else {
-		g_warning ("Using a new backend instance which is "
-			   "not supported at this stage or well tested");
-		backend = pk_backend_new ();
-		ret = pk_backend_load (backend, &error);
-		if (!ret) {
-			g_critical ("Failed to load second instance of PkBackend: %s",
-				    error->message);
-			g_error_free (error);
-			goto out;
-		}
-		pk_transaction_set_backend (item->transaction, backend);
-	}
 
 	/* run the transaction */
+	g_debug ("actually running %s", item->tid);
+	pk_transaction_set_backend (item->transaction,
+				    item->list->priv->backend);
 	ret = pk_transaction_run (item->transaction);
 	if (!ret)
 		g_error ("failed to run transaction (fatal)");
-out:
+
 	/* never try to idle add this again */
 	item->idle_id = 0;
-	if (backend != NULL)
-		g_object_unref (backend);
 	return FALSE;
 }
 
@@ -663,8 +639,10 @@ pk_transaction_list_create (PkTransactionList *tlist,
 	/* set the master PkBackend really early (i.e. before
 	 * pk_transaction_run is called) as transactions may want to check
 	 * to see if roles are possible before accepting actions */
-	pk_transaction_set_backend (item->transaction,
-				    tlist->priv->backend);
+	if (tlist->priv->backend != NULL) {
+		pk_transaction_set_backend (item->transaction,
+					    tlist->priv->backend);
+	}
 
 	/* get the uid for the transaction */
 	item->uid = pk_transaction_get_uid (item->transaction);
@@ -782,6 +760,7 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 	gboolean ret;
 	PkTransactionItem *item;
 	PkTransactionItem *item_active;
+	GPtrArray *array;
 
 	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), FALSE);
 	g_return_val_if_fail (tid != NULL, FALSE);
@@ -837,6 +816,9 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 		goto out;
 	}
 out:
+	if (array != NULL)
+		g_ptr_array_free (array, TRUE);
+
 	return TRUE;
 }
 

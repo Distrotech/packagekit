@@ -370,10 +370,10 @@ public:
      * \sa upgradeSystem()
      */
     typedef enum {
-        TransactionFlagNone,        // Since: 0.8.1
-        TransactionFlagOnlyTrusted, // Since: 0.8.1
-        TransactionFlagSimulate,    // Since: 0.8.1
-        TransactionFlagOnlyDownload // Since: 0.8.1
+        TransactionFlagNone         = 1 << 0, // Since: 0.8.1
+        TransactionFlagOnlyTrusted  = 1 << 1, // Since: 0.8.1
+        TransactionFlagSimulate     = 1 << 2, // Since: 0.8.1
+        TransactionFlagOnlyDownload = 1 << 3  // Since: 0.8.1
     } TransactionFlag;
     Q_DECLARE_FLAGS(TransactionFlags, TransactionFlag)
 
@@ -989,7 +989,7 @@ Q_SIGNALS:
      * Sends the \p item current progress \p percentage
      * Currently only a package id is emitted
      */
-    void ItemProgress(const QString &id, uint percentage);
+    void ItemProgress(const QString &id, uint status, uint percentage);
 
     /**
      * Sends the \p filenames contained in package \p package

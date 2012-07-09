@@ -1093,6 +1093,7 @@ pk_client_signal_cb (GDBusProxy *proxy,
 	gchar *tmp_str[12];
 	gchar **tmp_strv[5];
 	gboolean tmp_bool;
+	gboolean ret;
 	guint tmp_uint;
 	guint tmp_uint2;
 	guint tmp_uint3;
@@ -1203,7 +1204,7 @@ pk_client_signal_cb (GDBusProxy *proxy,
 	if (g_strcmp0 (signal_name, "Transaction") == 0) {
 		PkTransactionPast *item;
 		g_variant_get (parameters,
-			       "(&o&sb&su&su&s)",
+			       "(&o&sbuu&su&s)",
 			       &tmp_str[0],
 			       &tmp_str[1],
 			       &tmp_bool,
@@ -1412,10 +1413,27 @@ pk_client_signal_cb (GDBusProxy *proxy,
 		return;
 	}
 	if (g_strcmp0 (signal_name, "ItemProgress") == 0) {
+		PkItemProgress *item;
 		g_variant_get (parameters,
-			       "(&su)",
+			       "(&suu)",
 			       &tmp_str[0],
-			       &tmp_uint);
+			       &tmp_uint,
+			       &tmp_uint2);
+		item = pk_item_progress_new ();
+		g_object_set (item,
+			      "package-id", tmp_str[0],
+			      "status", tmp_uint,
+			      "percentage", tmp_uint2,
+			      "transaction-id", state->transaction_id,
+			      NULL);
+		ret = pk_progress_set_item_progress (state->progress,
+						     item);
+		if (ret && state->progress_callback != NULL) {
+			state->progress_callback (state->progress,
+						  PK_PROGRESS_TYPE_ITEM_PROGRESS,
+						  state->progress_user_data);
+		}
+		g_object_unref (item);
 		return;
 	}
 	if (g_strcmp0 (signal_name, "Changed") == 0) {
@@ -1516,7 +1534,6 @@ pk_client_set_hints_cb (GObject *source_object,
 	GError *error = NULL;
 	GVariant *value;
 	GDBusProxy *proxy = G_DBUS_PROXY (source_object);
-	PkBitfield transaction_flags = 0;
 	PkClientState *state = (PkClientState *) user_data;
 
 	/* get the result */
@@ -1758,7 +1775,7 @@ pk_client_set_hints_cb (GObject *source_object,
 	} else if (state->role == PK_ROLE_ENUM_INSTALL_PACKAGES) {
 		g_dbus_proxy_call (state->proxy, "InstallPackages",
 				   g_variant_new ("(t^a&s)",
-						  transaction_flags,
+						  state->transaction_flags,
 						  state->package_ids),
 				   G_DBUS_CALL_FLAGS_NONE,
 				   PK_CLIENT_DBUS_METHOD_TIMEOUT,

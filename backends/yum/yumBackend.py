@@ -1787,7 +1787,7 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
                         return
                     self._show_package(pkg, INFO_UNTRUSTED)
                 try:
-                    self._runYumTransaction(allow_skip_broken=True, only_simulate=TRANSACTION_FLAG_SIMULATE in transaction_flags)
+                    self._runYumTransaction(transaction_flags, allow_skip_broken=True)
                 except PkError, e:
                     self.error(e.code, e.details, exit=False)
             else:
@@ -2020,7 +2020,7 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
                     return
                 self._show_package(pkg, INFO_UNTRUSTED)
             try:
-                self._runYumTransaction(only_simulate=TRANSACTION_FLAG_SIMULATE in transaction_flags)
+                self._runYumTransaction(transaction_flags)
             except PkError, e:
                 self.error(e.code, e.details, exit=False)
         else:
@@ -2203,7 +2203,7 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
                 return
 
             try:
-                self._runYumTransaction(only_simulate=TRANSACTION_FLAG_SIMULATE in transaction_flags)
+                self._runYumTransaction(transaction_flags)
             except PkError, e:
                 self.error(e.code, e.details, exit=False)
                 return
@@ -2231,7 +2231,7 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
                             if not self.yumbase.tsInfo.pkgSack:
                                 self.yumbase.tsInfo.pkgSack = MetaSack()
                             try:
-                                self._runYumTransaction(only_simulate=TRANSACTION_FLAG_SIMULATE in transaction_flags)
+                                self._runYumTransaction(transaction_flags)
                             except PkError, e:
                                 self.error(e.code, e.details, exit=False)
                                 return
@@ -2344,7 +2344,7 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
                         return
                     self._show_package(pkg, INFO_UNTRUSTED)
                 try:
-                    self._runYumTransaction(allow_skip_broken=True, only_simulate=TRANSACTION_FLAG_SIMULATE in transaction_flags)
+                    self._runYumTransaction(transaction_flags, allow_skip_broken=True)
                 except PkError, e:
                     self.error(e.code, e.details, exit=False)
             else:
@@ -2361,7 +2361,7 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
                 or (notice and notice.get_metadata().has_key('reboot_suggested') and notice['reboot_suggested'])):
                 self.require_restart(RESTART_SYSTEM, self._pkg_to_id(pkg))
 
-    def _runYumTransaction(self, allow_remove_deps=None, allow_skip_broken=False, only_simulate=False):
+    def _runYumTransaction(self, transaction_flags, allow_remove_deps=None, allow_skip_broken=False):
         '''
         Run the yum Transaction
         This will only work with yum 3.2.4 or higher
@@ -2409,7 +2409,7 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
             raise PkError(ERROR_TRANSACTION_ERROR, message)
 
         # abort now we have the package list
-        if only_simulate:
+        if TRANSACTION_FLAG_SIMULATE in transaction_flags:
             package_list = []
             for txmbr in self.yumbase.tsInfo:
                 if txmbr.output_state in TransactionsInfoMap.keys():
@@ -2418,6 +2418,20 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
 
             self.percentage(90)
             self._show_package_list(package_list)
+            self.percentage(100)
+            return
+
+        if TRANSACTION_FLAG_ONLY_DOWNLOAD in transaction_flags:
+            package_list = []
+            for txmbr in self.yumbase.tsInfo:
+                if txmbr.output_state in (TS_UPDATE, TS_INSTALL):
+                    self._show_package(txmbr.po, INFO_DOWNLOADING)
+                    repo = self.yumbase.repos.getRepo(txmbr.po.repoid)
+                    try:
+                        path = repo.getPackage(txmbr.po)
+                    except IOError, e:
+                        self.error(ERROR_PACKAGE_DOWNLOAD_FAILED, "Cannot write to file", exit=False)
+                        return
             self.percentage(100)
             return
 
@@ -2529,9 +2543,9 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
                         return
             try:
                 if not allowdep:
-                    self._runYumTransaction(allow_remove_deps=False, only_simulate=TRANSACTION_FLAG_SIMULATE in transaction_flags)
+                    self._runYumTransaction(transaction_flags, allow_remove_deps=False)
                 else:
-                    self._runYumTransaction(allow_remove_deps=True, only_simulate=TRANSACTION_FLAG_SIMULATE in transaction_flags)
+                    self._runYumTransaction(transaction_flags, allow_remove_deps=True)
             except PkError, e:
                 self.error(e.code, e.details, exit=False)
         else:
@@ -3173,6 +3187,9 @@ class PackageKitYumBackend(PackageKitBaseBackend, PackagekitPackage):
         # default to 100% unless method overrides
         self.yumbase.conf.throttle = "90%"
 
+        # do not use parallel downloading
+        self.yumbase.conf.async = False
+
     def _setup_yum(self):
         try:
             # setup Yum Config
@@ -3291,7 +3308,7 @@ class DownloadCallback(BaseMeter):
         if name:
             pkg = self._getPackage(name)
             if pkg:
-                self.base.item_percentage(self.base._pkg_to_id(pkg), val)
+                self.base.item_progress(self.base._pkg_to_id(pkg), val)
 
         # package finished
         if val == 100 and name:
@@ -3352,7 +3369,7 @@ class PackageKitCallback(RPMBaseCallback):
         #if package and te_total > 0:
         #    val = (te_current*100L)/te_total
         #    if self.curpkg:
-        #        self.base.item_percentage(self.base._pkg_to_id(self.curpkg), val)
+        #        self.base.item_progress(self.base._pkg_to_id(self.curpkg), val)
 
         # find out the offset
         pct_start = StatusPercentageMap[STATUS_INSTALL]

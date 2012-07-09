@@ -27,6 +27,7 @@
 
 #define PK_OFFLINE_UPDATE_RESULTS_GROUP		"PackageKit Offline Update Results"
 #define PK_OFFLINE_UPDATE_RESULTS_FILENAME	"/var/lib/PackageKit/offline-update-competed"
+#define PK_OFFLINE_PREPARED_UPDATE_FILENAME	"/var/lib/PackageKit/prepared-update"
 
 /**
  * pk_offline_update_set_plymouth_msg:
@@ -38,6 +39,11 @@ pk_offline_update_set_plymouth_msg (const gchar *msg)
 	gchar *cmd;
 	GError *error = NULL;
 
+	/* allow testing without sending commands to plymouth */
+	if (g_getenv ("PK_OFFLINE_UPDATE_TEST") != NULL) {
+		g_print ("TESTING, so not setting message: %s\n", msg);
+		return;
+	}
 	cmd = g_strdup_printf ("plymouth display-message --text=\"%s\"", msg);
 	ret = g_spawn_command_line_async (cmd, &error);
 	if (!ret) {
@@ -59,6 +65,11 @@ pk_offline_update_set_plymouth_mode (const gchar *mode)
 	GError *error = NULL;
 	gchar *cmdline;
 
+	/* allow testing without sending commands to plymouth */
+	if (g_getenv ("PK_OFFLINE_UPDATE_TEST") != NULL) {
+		g_print ("TESTING, so not switching mode: %s\n", mode);
+		return;
+	}
 	cmdline = g_strdup_printf ("plymouth change-mode --%s", mode);
 	ret = g_spawn_command_line_async (cmdline, &error);
 	if (!ret) {
@@ -79,6 +90,11 @@ pk_offline_update_set_plymouth_percentage (guint percentage)
 	GError *error = NULL;
 	gchar *cmdline;
 
+	/* allow testing without sending commands to plymouth */
+	if (g_getenv ("PK_OFFLINE_UPDATE_TEST") != NULL) {
+		g_print ("TESTING, so not setting percentage: %i\n", percentage);
+		return;
+	}
 	cmdline = g_strdup_printf ("plymouth system-update --progress=%i",
 				   percentage);
 	ret = g_spawn_command_line_async (cmdline, &error);
@@ -127,6 +143,12 @@ pk_offline_update_reboot (void)
 	GDBusConnection *connection;
 	GError *error = NULL;
 	GVariant *val = NULL;
+
+	/* allow testing without rebooting */
+	if (g_getenv ("PK_OFFLINE_UPDATE_TEST") != NULL) {
+		g_print ("TESTING, so not rebooting\n");
+		return;
+	}
 
 	/* reboot using systemd */
 	pk_offline_update_set_plymouth_mode ("shutdown");
@@ -299,10 +321,13 @@ out:
 int
 main (int argc, char *argv[])
 {
+	gboolean ret;
+	gchar **package_ids = NULL;
+	gchar *packages_data = NULL;
 	GError *error = NULL;
 	gint retval;
-	PkTask *task = NULL;
 	PkResults *results;
+	PkTask *task = NULL;
 
 	/* setup */
 	g_type_init ();
@@ -314,16 +339,30 @@ main (int argc, char *argv[])
 		goto out;
 	}
 
+	/* get the list of packages to update */
+	ret = g_file_get_contents (PK_OFFLINE_PREPARED_UPDATE_FILENAME,
+				   &packages_data,
+				   NULL,
+				   &error);
+	if (!ret) {
+		retval = EXIT_FAILURE;
+		g_warning ("failed to read: %s", error->message);
+		g_error_free (error);
+		goto out;
+	}
+
 	/* just update the system */
 	task = pk_task_new ();
 	pk_task_set_interactive (task, FALSE);
 	pk_offline_update_set_plymouth_mode ("updates");
-	results = pk_client_update_system (PK_CLIENT (task),
-					   0,
-					   NULL, /* GCancellable */
-					   pk_offline_update_progress_cb,
-					   NULL, /* user_data */
-					   &error);
+	package_ids = g_strsplit (packages_data, "\n", -1);
+	results = pk_client_update_packages (PK_CLIENT (task),
+					     0,
+					     package_ids,
+					     NULL, /* GCancellable */
+					     pk_offline_update_progress_cb,
+					     NULL, /* user_data */
+					     &error);
 	if (results == NULL) {
 		retval = EXIT_FAILURE;
 		pk_offline_update_write_error (error);
@@ -332,11 +371,13 @@ main (int argc, char *argv[])
 		goto out;
 	}
 	pk_offline_update_write_results (results);
-	g_unlink ("/var/lib/PackageKit/prepared-update");
+	g_unlink (PK_OFFLINE_PREPARED_UPDATE_FILENAME);
 	retval = EXIT_SUCCESS;
 out:
 	g_unlink ("/system-update");
 	pk_offline_update_reboot ();
+	g_free (packages_data);
+	g_strfreev (package_ids);
 	if (task != NULL)
 		g_object_unref (task);
 	return retval;

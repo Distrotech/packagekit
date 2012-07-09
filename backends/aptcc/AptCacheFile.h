@@ -26,7 +26,7 @@
 class AptCacheFile : public pkgCacheFile
 {
 public:
-    AptCacheFile(PkBackend *backend);
+    AptCacheFile(PkBackendJob *job);
     ~AptCacheFile();
 
     /**
@@ -87,17 +87,7 @@ public:
     /** \return a short description string corresponding to the given
      *  version.
      */
-    std::string getDefaultShortDescription(const pkgCache::VerIterator &ver);
-
-    /** \return a short description string corresponding to the given
-     *  version.
-     */
     std::string getShortDescription(const pkgCache::VerIterator &ver);
-
-    /** \return a short description string corresponding to the given
-     *  version.
-     */
-    std::string getDefaultLongDescription(const pkgCache::VerIterator &ver);
 
     /** \return a short description string corresponding to the given
      *  version.
@@ -114,7 +104,7 @@ private:
     static std::string debParser(std::string descr);
 
     pkgRecords *m_packageRecords;
-    PkBackend  *m_backend;
+    PkBackendJob *m_job;
 };
 
 #endif // APTCACHEFILE_H

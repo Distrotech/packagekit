@@ -2,7 +2,7 @@
 
 m4_define([pk_major_version], [0])
 m4_define([pk_minor_version], [8])
-m4_define([pk_micro_version], [1])
+m4_define([pk_micro_version], [2])
 m4_define([pk_version],
           [pk_major_version.pk_minor_version.pk_micro_version])
 
@@ -613,7 +613,7 @@ if test x$with_default_backend = x; then
 	elif test -f /usr/lib/libalpm.so; then
 		with_default_backend=alpm
 	elif test -f /usr/bin/apt-get ; then
-		with_default_backend=apt
+		with_default_backend=aptcc
 	elif test -f /usr/bin/conary ; then
 		with_default_backend=conary
 	elif test -f /usr/bin/box-repos ; then
@@ -665,7 +665,7 @@ if test x$enable_apt = xyes; then
 	PY_CHECK_MOD([apt_pkg],,,AC_MSG_ERROR([Apt backend needs python-apt]))
 	PY_CHECK_MOD([UpdateManager.Core.MetaRelease],,
 		     AC_DEFINE(HAVE_PYTHON_META_RELEASE, 1,
-			       "Meta release is available"), 
+			       "Meta release is available"),
 		     AC_MSG_WARN([Distro upgrade notification not supported]))
 	PY_CHECK_MOD([softwareproperties.SoftwareProperties],,
 		     AC_DEFINE(HAVE_PYTHON_SOFTWARE_PROPERTIES, 1,
@@ -742,6 +742,10 @@ fi
 
 if test x$enable_zypp = xyes; then
 	PKG_CHECK_MODULES(ZYPP, libzypp >= 6.16.0)
+	PKG_CHECK_EXISTS(libzypp >= 11.4.0, [ ZYPP_RETURN_BYTES="yes" ], [ ZYPP_RETURN_BYTES="no" ])
+	if test "x$ZYPP_RETURN_BYTES" = "xyes"; then
+	    AC_DEFINE(ZYPP_RETURN_BYTES, 1, [define if libzypp returns package size in bytes])
+	fi
 fi
 
 if test x$enable_slapt = xyes; then
