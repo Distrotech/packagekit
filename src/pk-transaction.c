@@ -1024,6 +1024,18 @@ pk_transaction_get_backend (PkTransaction *transaction)
 }
 
 /**
+ * pk_transaction_get_backend_job:
+ *
+ * Returns: (transfer none): Current PkBackendJob for this transaction
+ **/
+PkBackendJob *
+pk_transaction_get_backend_job (PkTransaction *transaction)
+{
+	g_return_val_if_fail (PK_IS_TRANSACTION (transaction), NULL);
+	return transaction->priv->job;
+}
+
+/**
  * pk_transaction_set_backend:
  **/
 void

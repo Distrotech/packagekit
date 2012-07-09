@@ -78,6 +78,7 @@ PkRoleEnum	 pk_transaction_get_role			(PkTransaction	*transaction);
 guint		 pk_transaction_get_uid				(PkTransaction	*transaction);
 PkConf		*pk_transaction_get_conf			(PkTransaction	*transaction);
 PkBackend	*pk_transaction_get_backend			(PkTransaction	*transaction);
+PkBackendJob	*pk_transaction_get_backend_job			(PkTransaction	*transaction);
 void		 pk_transaction_set_backend			(PkTransaction	*transaction,
 								 PkBackend	*backend);
 PkResults	*pk_transaction_get_results			(PkTransaction	*transaction);

@@ -470,7 +470,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 	PkTransactionItem *item;
 	PkTransactionState state;
 	PkResults *results;
-	PkBackend *backend;
+	PkBackendJob *job;
 	PkError *error;
 	const gchar *tid;
 
@@ -499,10 +499,10 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 
 		if (item->tries > 4) {
 			/* fail the transaction */
-			backend = pk_transaction_get_backend (item->transaction);
+			job = pk_transaction_get_backend_job (item->transaction);
 
 			/* TRANSLATORS: We finally failed completely to get a package manager lock */
-			pk_backend_error_code (backend, PK_ERROR_ENUM_CANNOT_GET_LOCK, _("Unable to lock package database! There is probably another application using it already."));
+			pk_backend_job_error_code (job, PK_ERROR_ENUM_CANNOT_GET_LOCK, _("Unable to lock package database! There is probably another application using it already."));
 
 		} else {
 			/* try to run the next transaction, if possible */
@@ -760,7 +760,6 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 	gboolean ret;
 	PkTransactionItem *item;
 	PkTransactionItem *item_active;
-	GPtrArray *array;
 
 	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), FALSE);
 	g_return_val_if_fail (tid != NULL, FALSE);
@@ -815,10 +814,8 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 		pk_transaction_cancel_bg (item_active->transaction);
 		goto out;
 	}
-out:
-	if (array != NULL)
-		g_ptr_array_free (array, TRUE);
 
+out:
 	return TRUE;
 }
 
