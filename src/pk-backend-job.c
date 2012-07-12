@@ -120,14 +120,40 @@ G_DEFINE_TYPE (PkBackendJob, pk_backend_job, G_TYPE_OBJECT)
 void
 pk_backend_job_reset (PkBackendJob *job)
 {
+	guint i;
+	PkBackendJobVFuncItem *item;
+
 	job->priv->finished = FALSE;
 	job->priv->has_sent_package = FALSE;
 	job->priv->set_error = FALSE;
-	job->priv->user_data = NULL;
 	job->priv->thread = NULL;
 	job->priv->exit = PK_EXIT_ENUM_UNKNOWN;
 	job->priv->role = PK_ROLE_ENUM_UNKNOWN;
 	job->priv->status = PK_STATUS_ENUM_UNKNOWN;
+
+	/* reset the vfuncs too */
+	for (i = 0; i < PK_BACKEND_SIGNAL_LAST; i++) {
+		item = &job->priv->vfunc_items[i];
+		item->enabled = FALSE;
+		item->vfunc = NULL;
+		item->user_data = NULL;
+	}
+}
+
+/**
+ * pk_backend_job_get_vfunc_enabled:
+ **/
+gboolean
+pk_backend_job_get_vfunc_enabled (PkBackendJob *job,
+				  PkBackendJobSignal signal_kind)
+{
+	PkBackendJobVFuncItem *item;
+	item = &job->priv->vfunc_items[signal_kind];
+	if (!item->enabled)
+		return FALSE;
+	if (item->vfunc == NULL)
+		return FALSE;
+	return TRUE;
 }
 
 /**
@@ -539,6 +565,7 @@ typedef struct {
 	PkBackendJob		*job;
 	PkBackendJobSignal	 signal_kind;
 	GObject			*object;
+	GDestroyNotify		 destroy_func;
 } PkBackendJobVFuncHelper;
 
 /**
@@ -560,6 +587,8 @@ pk_backend_job_call_vfunc_idle_cb (gpointer user_data)
 		g_warning ("tried to do signal %i when no longer connected",
 			   helper->signal_kind);
 	}
+	if (helper->destroy_func != NULL)
+		helper->destroy_func (helper->object);
 	return FALSE;
 }
 
@@ -572,30 +601,28 @@ pk_backend_job_call_vfunc_idle_cb (gpointer user_data)
 static void
 pk_backend_job_call_vfunc (PkBackendJob *job,
 			   PkBackendJobSignal signal_kind,
-			   GObject *object)
+			   GObject *object,
+			   GDestroyNotify destroy_func)
 {
 	PkBackendJobVFuncHelper *helper;
 	PkBackendJobVFuncItem *item;
+	guint priority = G_PRIORITY_DEFAULT_IDLE;
 
 	/* call transaction vfunc if not disabled and set */
 	item = &job->priv->vfunc_items[signal_kind];
 	if (!item->enabled || item->vfunc == NULL)
 		return;
 
-	/* if we're in the main thread already, don't bother with the
-	 * idle add and do the vfunc now */
-	if (job->priv->thread == NULL ||
-	    g_thread_self () == job->priv->thread) {
-		item->vfunc (job, object, item->user_data);
-		return;
-	}
+	if (signal_kind == PK_BACKEND_SIGNAL_FINISHED)
+		priority = G_PRIORITY_LOW;
 
 	/* emit idle, TODO: do we ever need to cancel this? */
 	helper = g_new0 (PkBackendJobVFuncHelper, 1);
 	helper->job = job;
 	helper->signal_kind = signal_kind;
 	helper->object = object;
-	g_idle_add_full (G_PRIORITY_HIGH_IDLE,
+	helper->destroy_func = destroy_func;
+	g_idle_add_full (priority,
 			 pk_backend_job_call_vfunc_idle_cb,
 			 helper,
 			 g_free);
@@ -648,7 +675,8 @@ pk_backend_job_set_role (PkBackendJob *job, PkRoleEnum role)
 	job->priv->status = PK_STATUS_ENUM_WAIT;
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_STATUS_CHANGED,
-				   GUINT_TO_POINTER (job->priv->status));
+				   GUINT_TO_POINTER (job->priv->status),
+				   NULL);
 }
 
 /**
@@ -665,7 +693,8 @@ pk_backend_job_set_locked (PkBackendJob *job, gboolean locked)
 	job->priv->locked = locked;
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_LOCKED_CHANGED,
-				   GUINT_TO_POINTER (job->priv->locked));
+				   GUINT_TO_POINTER (job->priv->locked),
+				   NULL);
 }
 
 /**
@@ -800,7 +829,8 @@ pk_backend_job_set_percentage (PkBackendJob *job, guint percentage)
 	job->priv->percentage = percentage;
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_PERCENTAGE,
-				   GUINT_TO_POINTER (percentage));
+				   GUINT_TO_POINTER (percentage),
+				   NULL);
 
 	/* only compute time if we have data */
 	if (percentage != PK_BACKEND_PERCENTAGE_INVALID) {
@@ -813,7 +843,8 @@ pk_backend_job_set_percentage (PkBackendJob *job, guint percentage)
 		job->priv->remaining = remaining;
 		pk_backend_job_call_vfunc (job,
 					   PK_BACKEND_SIGNAL_REMAINING,
-					   GUINT_TO_POINTER (remaining));
+					   GUINT_TO_POINTER (remaining),
+					   NULL);
 	}
 
 }
@@ -842,7 +873,8 @@ pk_backend_job_set_speed (PkBackendJob *job, guint speed)
 	job->priv->speed = speed;
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_SPEED,
-				   GUINT_TO_POINTER (speed));
+				   GUINT_TO_POINTER (speed),
+				   NULL);
 }
 
 /**
@@ -869,7 +901,8 @@ pk_backend_job_set_download_size_remaining (PkBackendJob *job, guint64 download_
 	job->priv->download_size_remaining = download_size_remaining;
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_DOWNLOAD_SIZE_REMAINING,
-				   GUINT_TO_POINTER (download_size_remaining));
+				   GUINT_TO_POINTER (download_size_remaining),
+				   NULL);
 }
 
 /**
@@ -904,7 +937,8 @@ pk_backend_job_set_item_progress (PkBackendJob *job,
 			     NULL);
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_ITEM_PROGRESS,
-				   G_OBJECT (item));
+				   g_object_ref (item),
+				   g_object_unref);
 	g_object_unref (item);
 }
 
@@ -945,7 +979,8 @@ pk_backend_job_set_status (PkBackendJob *job, PkStatusEnum status)
 			/* emit */
 			pk_backend_job_call_vfunc (job,
 						   PK_BACKEND_SIGNAL_STATUS_CHANGED,
-						   GUINT_TO_POINTER (PK_STATUS_ENUM_RUNNING));
+						   GUINT_TO_POINTER (PK_STATUS_ENUM_RUNNING),
+						   NULL);
 		}
 	}
 
@@ -954,7 +989,8 @@ pk_backend_job_set_status (PkBackendJob *job, PkStatusEnum status)
 	/* emit */
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_STATUS_CHANGED,
-				   GUINT_TO_POINTER (status));
+				   GUINT_TO_POINTER (status),
+				   NULL);
 }
 
 /**
@@ -1157,7 +1193,8 @@ pk_backend_job_package (PkBackendJob *job,
 	/* emit */
 	pk_backend_job_call_vfunc (job,
 				PK_BACKEND_SIGNAL_PACKAGE,
-				G_OBJECT (item));
+				g_object_ref (item),
+				   g_object_unref);
 
 	/* add to results if meaningful */
 	if (info != PK_INFO_ENUM_FINISHED)
@@ -1239,7 +1276,10 @@ pk_backend_job_update_detail (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_UPDATE_DETAIL, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_UPDATE_DETAIL,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_update_detail (job->priv->results, item);
 
 	/* we parsed okay */
@@ -1284,7 +1324,10 @@ pk_backend_job_require_restart (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_REQUIRE_RESTART, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_REQUIRE_RESTART,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_require_restart (job->priv->results, item);
 out:
 	if (item != NULL)
@@ -1323,7 +1366,10 @@ pk_backend_job_message (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_MESSAGE, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_MESSAGE,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_message (job->priv->results, item);
 out:
 	g_free (buffer);
@@ -1372,7 +1418,8 @@ pk_backend_job_details (PkBackendJob *job,
 	/* emit */
 	pk_backend_job_call_vfunc (job,
 			       PK_BACKEND_SIGNAL_DETAILS,
-			       G_OBJECT (item));
+			       g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_details (job->priv->results, item);
 out:
 	if (item != NULL)
@@ -1419,7 +1466,10 @@ pk_backend_job_files (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_FILES, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_FILES,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_files (job->priv->results, item);
 
 	/* success */
@@ -1467,7 +1517,10 @@ pk_backend_job_distro_upgrade (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_DISTRO_UPGRADE, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_DISTRO_UPGRADE,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_distro_upgrade (job->priv->results, item);
 out:
 	if (item != NULL)
@@ -1521,7 +1574,10 @@ pk_backend_job_repo_signature_required (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_REPO_SIGNATURE_REQUIRED, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_REPO_SIGNATURE_REQUIRED,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_repo_signature_required (job->priv->results, item);
 
 	/* success */
@@ -1571,7 +1627,10 @@ pk_backend_job_eula_required (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_EULA_REQUIRED, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_EULA_REQUIRED,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_eula_required (job->priv->results, item);
 
 	/* success */
@@ -1611,7 +1670,10 @@ pk_backend_job_media_change_required (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_MEDIA_CHANGE_REQUIRED, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_MEDIA_CHANGE_REQUIRED,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_media_change_required (job->priv->results, item);
 out:
 	if (item != NULL)
@@ -1651,7 +1713,10 @@ pk_backend_job_repo_detail (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_REPO_DETAIL, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_REPO_DETAIL,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_repo_detail (job->priv->results, item);
 out:
 	if (item != NULL)
@@ -1696,7 +1761,10 @@ pk_backend_job_category (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_CATEGORY, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_CATEGORY,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_add_category (job->priv->results, item);
 out:
 	if (item != NULL)
@@ -1773,7 +1841,10 @@ pk_backend_job_error_code (PkBackendJob *job,
 		      NULL);
 
 	/* emit */
-	pk_backend_job_call_vfunc (job, PK_BACKEND_SIGNAL_ERROR_CODE, G_OBJECT (item));
+	pk_backend_job_call_vfunc (job,
+				   PK_BACKEND_SIGNAL_ERROR_CODE,
+				   g_object_ref (item),
+				   g_object_unref);
 	pk_results_set_error_code (job->priv->results, item);
 out:
 	if (item != NULL)
@@ -1813,7 +1884,8 @@ pk_backend_job_set_allow_cancel (PkBackendJob *job, gboolean allow_cancel)
 	/* emit */
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_ALLOW_CANCEL,
-				   GUINT_TO_POINTER (allow_cancel));
+				   GUINT_TO_POINTER (allow_cancel),
+				   NULL);
 	job->priv->allow_cancel = allow_cancel;
 }
 
@@ -1960,7 +2032,8 @@ pk_backend_job_finished (PkBackendJob *job)
 	/* emit */
 	pk_backend_job_call_vfunc (job,
 				   PK_BACKEND_SIGNAL_FINISHED,
-				   GUINT_TO_POINTER (job->priv->exit));
+				   GUINT_TO_POINTER (job->priv->exit),
+				   NULL);
 }
 
 /**

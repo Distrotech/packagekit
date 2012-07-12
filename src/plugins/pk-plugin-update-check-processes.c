@@ -69,8 +69,10 @@ pk_plugin_finished_cb (PkBackendJob *job,
 		       PkExitEnum exit_enum,
 		       PkPlugin *plugin)
 {
-	if (!g_main_loop_is_running (plugin->priv->loop))
+	if (!g_main_loop_is_running (plugin->priv->loop)) {
+		g_warning ("loop not running");
 		return;
+	}
 	g_main_loop_quit (plugin->priv->loop);
 }
 
@@ -150,8 +152,7 @@ pk_plugin_transaction_finished_results (PkPlugin *plugin,
 
 	/* check the role */
 	role = pk_transaction_get_role (transaction);
-	if (role != PK_ROLE_ENUM_UPDATE_SYSTEM &&
-	    role != PK_ROLE_ENUM_UPDATE_PACKAGES)
+	if (role != PK_ROLE_ENUM_UPDATE_PACKAGES)
 		goto out;
 
 	/* check we can do the action */
@@ -197,7 +198,6 @@ pk_plugin_transaction_finished_results (PkPlugin *plugin,
 	pk_proc_refresh (plugin->priv->proc);
 
 	/* get all the files touched in the packages we just updated */
-	pk_backend_reset_job (plugin->backend, plugin->job);
 	pk_backend_job_set_status (plugin->job, PK_STATUS_ENUM_CHECK_EXECUTABLE_FILES);
 	pk_backend_job_set_percentage (plugin->job, 101);
 	package_ids = pk_ptr_array_to_strv (list);

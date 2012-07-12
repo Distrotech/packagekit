@@ -32,6 +32,8 @@
 /* for when parsing /etc/login.defs fails */
 #define PK_TRANSACTION_EXTRA_UID_MIN_DEFALT	500
 
+static void pk_plugin_files_cb (PkBackendJob *job, PkFiles *files, PkPlugin *plugin);
+
 struct PkPluginPrivate {
 	GMainLoop		*loop;
 	GPtrArray		*list;
@@ -85,8 +87,10 @@ pk_plugin_finished_cb (PkBackendJob *job,
 		       PkExitEnum exit_enum,
 		       PkPlugin *plugin)
 {
-	if (!g_main_loop_is_running (plugin->priv->loop))
+	if (!g_main_loop_is_running (plugin->priv->loop)) {
+		g_warning ("loop not running");
 		return;
+	}
 	g_main_loop_quit (plugin->priv->loop);
 }
 
@@ -104,6 +108,14 @@ pk_plugin_get_installed_package_for_file (PkPlugin *plugin,
 	/* use PK to find the correct package */
 	g_ptr_array_set_size (plugin->priv->list, 0);
 	pk_backend_reset_job (plugin->backend, plugin->job);
+	pk_backend_job_set_vfunc (plugin->job,
+				  PK_BACKEND_SIGNAL_FILES,
+				  (PkBackendJobVFunc) pk_plugin_files_cb,
+				  plugin);
+	pk_backend_job_set_vfunc (plugin->job,
+				  PK_BACKEND_SIGNAL_FINISHED,
+				  (PkBackendJobVFunc) pk_plugin_finished_cb,
+				  plugin);
 	filenames = g_strsplit (filename, "|||", -1);
 	pk_backend_search_files (plugin->backend,
 				 plugin->job,
@@ -298,8 +310,7 @@ pk_plugin_transaction_run (PkPlugin *plugin,
 
 	/* check the role */
 	role = pk_transaction_get_role (transaction);
-	if (role != PK_ROLE_ENUM_UPDATE_SYSTEM &&
-	    role != PK_ROLE_ENUM_UPDATE_PACKAGES &&
+	if (role != PK_ROLE_ENUM_UPDATE_PACKAGES &&
 	    role != PK_ROLE_ENUM_INSTALL_PACKAGES)
 		goto out;
 
@@ -309,14 +320,6 @@ pk_plugin_transaction_run (PkPlugin *plugin,
 		g_debug ("cannot get files");
 		goto out;
 	}
-	pk_backend_job_set_vfunc (plugin->job,
-			      PK_BACKEND_SIGNAL_FILES,
-			      (PkBackendJobVFunc) pk_plugin_files_cb,
-			      plugin);
-	pk_backend_job_set_vfunc (plugin->job,
-			      PK_BACKEND_SIGNAL_FINISHED,
-			      (PkBackendJobVFunc) pk_plugin_finished_cb,
-			      plugin);
 
 	/* do we have a cache */
 	cache = pk_cache_new ();
@@ -392,6 +395,7 @@ pk_plugin_transaction_run (PkPlugin *plugin,
 	}
 
 	/* set status */
+	pk_backend_reset_job (plugin->backend, plugin->job);
 	pk_backend_job_set_status (plugin->job, PK_STATUS_ENUM_SCAN_PROCESS_LIST);
 	pk_backend_job_set_percentage (plugin->job, 101);
 
@@ -403,7 +407,14 @@ pk_plugin_transaction_run (PkPlugin *plugin,
 	}
 
 	/* get all the files touched in the packages we just updated */
-	pk_backend_reset_job (plugin->backend, plugin->job);
+	pk_backend_job_set_vfunc (plugin->job,
+				  PK_BACKEND_SIGNAL_FILES,
+				  (PkBackendJobVFunc) pk_plugin_files_cb,
+				  plugin);
+	pk_backend_job_set_vfunc (plugin->job,
+				  PK_BACKEND_SIGNAL_FINISHED,
+				  (PkBackendJobVFunc) pk_plugin_finished_cb,
+				  plugin);
 	pk_backend_job_set_status (plugin->job,
 				   PK_STATUS_ENUM_CHECK_LIBRARIES);
 	pk_backend_get_files (plugin->backend,

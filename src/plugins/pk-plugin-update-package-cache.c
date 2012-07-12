@@ -138,8 +138,10 @@ pk_plugin_finished_cb (PkBackendJob *job,
 		       PkExitEnum exit_enum,
 		       PkPlugin *plugin)
 {
-	if (!g_main_loop_is_running (plugin->priv->loop))
+	if (!g_main_loop_is_running (plugin->priv->loop)) {
+		g_warning ("loop not running");
 		return;
+	}
 	g_main_loop_quit (plugin->priv->loop);
 }
 
@@ -247,32 +249,24 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	pk_bitfield_remove (backend_signals, PK_BACKEND_SIGNAL_FINISHED);
 	pk_transaction_set_signals (transaction, plugin->job, backend_signals);
 
-	/* connect backend */
-	pk_backend_job_set_vfunc (plugin->job,
-			      PK_BACKEND_SIGNAL_FINISHED,
-			      (PkBackendJobVFunc) pk_plugin_finished_cb,
-			      plugin);
-	pk_backend_job_set_vfunc (plugin->job,
-			      PK_BACKEND_SIGNAL_PACKAGE,
-			      (PkBackendJobVFunc) pk_plugin_package_cb,
-			      plugin);
-	pk_backend_job_set_vfunc (plugin->job,
-			      PK_BACKEND_SIGNAL_DETAILS,
-			      (PkBackendJobVFunc) pk_plugin_details_cb,
-			      plugin);
-
 	g_debug ("plugin: rebuilding package cache");
 
 	/* clear old package list */
 	pk_package_sack_clear (priv->sack);
 
-	/* update UI */
-	pk_backend_job_set_status (plugin->job,
-			       PK_STATUS_ENUM_GENERATE_PACKAGE_LIST);
-	pk_backend_job_set_percentage (plugin->job, 101);
-
 	/* get the new package list */
 	pk_backend_reset_job (plugin->backend, plugin->job);
+	pk_backend_job_set_status (plugin->job,
+				   PK_STATUS_ENUM_GENERATE_PACKAGE_LIST);
+	pk_backend_job_set_percentage (plugin->job, 101);
+	pk_backend_job_set_vfunc (plugin->job,
+				  PK_BACKEND_SIGNAL_FINISHED,
+				  (PkBackendJobVFunc) pk_plugin_finished_cb,
+				  plugin);
+	pk_backend_job_set_vfunc (plugin->job,
+				  PK_BACKEND_SIGNAL_PACKAGE,
+				  (PkBackendJobVFunc) pk_plugin_package_cb,
+				  plugin);
 	pk_backend_get_packages (plugin->backend, plugin->job, PK_FILTER_ENUM_NONE);
 
 	/* wait for finished */
@@ -298,6 +292,14 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	    PK_ROLE_ENUM_GET_DETAILS)) {
 		pk_backend_reset_job (plugin->backend, plugin->job);
 		package_ids = pk_package_sack_get_ids (priv->sack);
+		pk_backend_job_set_vfunc (plugin->job,
+					  PK_BACKEND_SIGNAL_DETAILS,
+					  (PkBackendJobVFunc) pk_plugin_details_cb,
+					  plugin);
+		pk_backend_job_set_vfunc (plugin->job,
+					  PK_BACKEND_SIGNAL_FINISHED,
+					  (PkBackendJobVFunc) pk_plugin_finished_cb,
+					  plugin);
 		pk_backend_get_details (plugin->backend, plugin->job, package_ids);
 
 		/* wait for finished */

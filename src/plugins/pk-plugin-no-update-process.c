@@ -52,8 +52,10 @@ pk_plugin_finished_cb (PkBackendJob *job,
 		       PkExitEnum exit_enum,
 		       PkPlugin *plugin)
 {
-	if (!g_main_loop_is_running (plugin->priv->loop))
+	if (!g_main_loop_is_running (plugin->priv->loop)) {
+		g_warning ("loop not running");
 		return;
+	}
 	g_main_loop_quit (plugin->priv->loop);
 }
 
@@ -220,7 +222,6 @@ pk_plugin_transaction_run (PkPlugin *plugin,
 
 	/* get all the files touched in the packages we just updated */
 	package_ids = pk_transaction_get_package_ids (transaction);
-	pk_backend_reset_job (plugin->backend, plugin->job);
 	pk_backend_get_files (plugin->backend, plugin->job, package_ids);
 
 	/* wait for finished */
