@@ -473,6 +473,18 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	guint i;
 	PkRoleEnum role;
 
+	/* skip simulate actions */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_SIMULATE)) {
+		goto out;
+	}
+
+	/* skip only-download */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_ONLY_DOWNLOAD)) {
+		goto out;
+	}
+
 	/* load */
 	if (plugin->priv->db == NULL)
 		pk_transaction_plugin_load_db (plugin, transaction);
@@ -618,6 +630,18 @@ pk_plugin_transaction_finished_results (PkPlugin *plugin,
 	PkPackage *item;
 	PkResults *results;
 	PkRoleEnum role;
+
+	/* skip simulate actions */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_SIMULATE)) {
+		goto out;
+	}
+
+	/* skip only-download */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_ONLY_DOWNLOAD)) {
+		goto out;
+	}
 
 	/* load */
 	if (plugin->priv->db == NULL)

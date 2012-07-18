@@ -41,6 +41,18 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 {
 	PkRoleEnum role;
 
+	/* skip simulate actions */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_SIMULATE)) {
+		return;
+	}
+
+	/* skip only-download */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_ONLY_DOWNLOAD)) {
+		return;
+	}
+
 	/* just delete the file, no questions asked :) */
 	role = pk_transaction_get_role (transaction);
 	if (role == PK_ROLE_ENUM_REFRESH_CACHE ||

@@ -225,6 +225,18 @@ pk_plugin_transaction_finished_end (PkPlugin *plugin,
 	gboolean update_list;
 	PkPluginPrivate *priv = plugin->priv;
 
+	/* skip simulate actions */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_SIMULATE)) {
+		goto out;
+	}
+
+	/* skip only-download */
+	if (pk_bitfield_contain (pk_transaction_get_transaction_flags (transaction),
+				 PK_TRANSACTION_FLAG_ENUM_ONLY_DOWNLOAD)) {
+		goto out;
+	}
+
 	/* check the config file */
 	conf = pk_transaction_get_conf (transaction);
 	update_cache = pk_conf_get_bool (conf, "UpdatePackageCache");
