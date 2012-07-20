@@ -404,6 +404,40 @@ out:
 }
 
 /**
+ * pk_transaction_list_get_background_running:
+ *
+ * Return value: %TRUE if we have running background transaction(s)
+ **/
+static gboolean
+pk_transaction_list_get_background_running (PkTransactionList *tlist)
+{
+	PkTransactionItem *item = NULL;
+	GPtrArray *array;
+	gboolean ret = FALSE;
+	guint i;
+
+	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), FALSE);
+
+	/* anything running? */
+	array = pk_transaction_list_get_active_transactions (tlist);
+	if (array->len == 0)
+		goto out;
+
+	/* check if we have any running background transaction */
+	for (i=0; i<array->len; i++) {
+		item = (PkTransactionItem *) g_ptr_array_index (array, i);
+		/* check if a transaction is running in exclusive mode and set if we're locked */
+		if (item->background) {
+			ret = TRUE;
+			goto out;
+		}
+	}
+out:
+	g_ptr_array_free (array, TRUE);
+	return ret;
+}
+
+/**
  * pk_transaction_list_get_next_item:
  **/
 static PkTransactionItem *
@@ -773,7 +807,7 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 		return FALSE;
 	}
 
-	/* check we're not this again */
+	/* check we're not doing this again */
 	if (pk_transaction_get_state (item->transaction) == PK_TRANSACTION_STATE_COMMITTED) {
 		g_warning ("already committed");
 		return FALSE;
@@ -797,28 +831,23 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 	g_debug ("emitting ::changed");
 	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
 
+	/* is one of the current running transactions backtround, and this new
+	 * transaction foreground? */
+	ret = pk_conf_get_bool (tlist->priv->conf,
+				"CancelBackgroundTransactions");
+	if (!ret) {
+		if (!item->background && pk_transaction_list_get_background_running (tlist)) {
+			g_debug ("cancelling running background transaction %s "
+				"and instead running %s",
+				item_active->tid, item->tid);
+			pk_transaction_list_cancel_background (tlist);
+		}
+	}
+
 	/* do the transaction now */
 	g_debug ("running %s", item->tid);
 	pk_transaction_list_run_item (tlist, item);
-	goto out;
 
-	/* TODO: Think about how to handle background transactions */
-
-	/* is the current running transaction backtround, and this new
-	 * transaction foreground? */
-	ret = pk_conf_get_bool (tlist->priv->conf,
-				"TransactionCreateCommitTimeout");
-	if (!ret)
-		goto out;
-	if (!item->background && item_active->background) {
-		g_debug ("cancelling running background transaction %s "
-			 "and instead running %s",
-			 item_active->tid, item->tid);
-		pk_transaction_cancel_bg (item_active->transaction);
-		goto out;
-	}
-
-out:
 	return TRUE;
 }
 
