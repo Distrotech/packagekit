@@ -762,7 +762,7 @@ pk_transaction_list_cancel_background (PkTransactionList *tlist)
 
 	g_return_if_fail (PK_IS_TRANSACTION_LIST (tlist));
 
-	/* cancel all running background transaction */
+	/* cancel all running background transactions */
 	array = tlist->priv->array;
 	for (i=0; i<array->len; i++) {
 		item = (PkTransactionItem *) g_ptr_array_index (array, i);
@@ -811,7 +811,6 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 {
 	gboolean ret;
 	PkTransactionItem *item;
-	PkTransactionItem *item_active;
 
 	g_return_val_if_fail (PK_IS_TRANSACTION_LIST (tlist), FALSE);
 	g_return_val_if_fail (tid != NULL, FALSE);
@@ -852,9 +851,8 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 				"CancelBackgroundTransactions");
 	if (!ret) {
 		if (!item->background && pk_transaction_list_get_background_running (tlist)) {
-			g_debug ("cancelling running background transaction %s "
-				"and instead running %s",
-				item_active->tid, item->tid);
+			g_debug ("cancelling running background transactions and instead running %s",
+				item->tid);
 			pk_transaction_list_cancel_background (tlist);
 		}
 	}
