@@ -566,7 +566,8 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		g_source_set_name_by_id (item->remove_id, "[PkTransactionList] remove");
 	}
 
-	g_object_unref (error);
+	if (error != NULL)
+		g_object_unref (error);
 
 	/* we have changed what is running */
 	g_debug ("emmitting ::changed");
