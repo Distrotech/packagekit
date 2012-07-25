@@ -3254,7 +3254,7 @@ class DownloadCallback(BaseMeter):
         if name:
             pkg = self._getPackage(name)
             if pkg:
-                self.base.item_progress(self.base._pkg_to_id(pkg), val)
+                self.base.item_progress(self.base._pkg_to_id(pkg), STATUS_DOWNLOAD, val)
 
         # package finished
         if val == 100 and name:
@@ -3312,16 +3312,17 @@ class PackageKitCallback(RPMBaseCallback):
                 self.base.message(MESSAGE_BACKEND_ERROR, "The constant '%s' was unknown, please report. details: %s" % (action, _to_unicode(e)))
 
         # set item percentage
-        #if package and te_total > 0:
-        #    val = (te_current*100L)/te_total
-        #    if self.curpkg:
-        #        self.base.item_progress(self.base._pkg_to_id(self.curpkg), val)
+        if package and te_total > 0:
+            val = (te_current*100L) / te_total
+            if self.curpkg:
+                self.base.item_progress(self.base._pkg_to_id(self.curpkg), STATUS_INSTALL, val)
 
         # find out the offset
         pct_start = StatusPercentageMap[STATUS_INSTALL]
 
         # do percentage
-        if ts_total > 0:
+        if ts_total > 0 and te_total > 0:
+            val = (te_current * 100L) / te_total
             div = (100 - pct_start) / ts_total
             pct = div * (ts_current - 1) + pct_start + ((div / 100.0) * val)
             self.base.percentage(pct)
