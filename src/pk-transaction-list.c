@@ -531,6 +531,8 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		/* increase the number of tries */
 		item->tries++;
 
+		g_debug ("transaction finished and requires lock now, attempt %i", item->tries);
+
 		if (item->tries > 4) {
 			/* fail the transaction */
 			job = pk_transaction_get_backend_job (item->transaction);
@@ -538,13 +540,9 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 			/* TRANSLATORS: We finally failed completely to get a package manager lock */
 			pk_backend_job_error_code (job, PK_ERROR_ENUM_CANNOT_GET_LOCK, _("Unable to lock package database! There is probably another application using it already."));
 
-		} else {
-			/* try to run the next transaction, if possible */
-			item = pk_transaction_list_get_next_item (tlist);
-			if (item != NULL) {
-				g_debug ("running %s as previous one finished", item->tid);
-				pk_transaction_list_run_item (tlist, item);
-			}
+			/* now really finish & fail the transaction */
+			pk_backend_job_finished (job);
+			goto out;
 		}
 	} else {
 		/* we've been 'used' */
@@ -557,21 +555,29 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		ret = pk_transaction_set_state (item->transaction, PK_TRANSACTION_STATE_FINISHED);
 		if (!ret) {
 			g_warning ("transaction could not be set finished!");
-			return;
+			goto out;
 		}
 
 		/* give the client a few seconds to still query the runner */
 		timeout = pk_conf_get_int (tlist->priv->conf, "TransactionKeepFinishedTimeout");
 		item->remove_id = g_timeout_add_seconds (timeout, (GSourceFunc) pk_transaction_list_remove_item_cb, item);
 		g_source_set_name_by_id (item->remove_id, "[PkTransactionList] remove");
-	}
 
-	if (error != NULL)
-		g_object_unref (error);
+		/* try to run the next transaction, if possible */
+		item = pk_transaction_list_get_next_item (tlist);
+		if (item != NULL) {
+			g_debug ("running %s as previous one finished", item->tid);
+			pk_transaction_list_run_item (tlist, item);
+		}
+	}
 
 	/* we have changed what is running */
 	g_debug ("emmitting ::changed");
 	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
+
+out:
+	if (error != NULL)
+		g_object_unref (error);
 }
 
 /**

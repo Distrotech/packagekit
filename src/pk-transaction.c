@@ -574,7 +574,7 @@ pk_transaction_error_code_cb (PkBackendJob *job,
 
 	if (code == PK_ERROR_ENUM_LOCK_REQUIRED) {
 		/* the backend failed to get lock for this action, this means this transaction has to be run in exclusive mode */
-		g_debug ("changing transaction to exclusive mode");
+		g_debug ("changing transaction to exclusive mode (after failing with lock-required)");
 		transaction->priv->exclusive = TRUE;
 	} else {
 		/* emit, as it is not the internally-handled LOCK_REQUIRED code */
@@ -1134,6 +1134,7 @@ pk_transaction_finished_cb (PkBackendJob *job, PkExitEnum exit_enum, PkTransacti
 	PkPackage *item;
 	gchar *package_id;
 	PkInfoEnum info;
+	PkError	*error_code;
 
 	g_return_if_fail (PK_IS_TRANSACTION (transaction));
 	g_return_if_fail (transaction->priv->tid != NULL);
@@ -1146,6 +1147,19 @@ pk_transaction_finished_cb (PkBackendJob *job, PkExitEnum exit_enum, PkTransacti
 
 	/* save this so we know if the cache is valid */
 	pk_results_set_exit_code (transaction->priv->results, exit_enum);
+
+	error_code = pk_results_get_error_code (transaction->priv->results);
+	if (error_code != NULL) {
+		/* don't really finish the transaction if we only completed wait for lock */
+		if (pk_error_get_code (error_code) == PK_ERROR_ENUM_LOCK_REQUIRED) {
+			g_object_unref (error_code);
+			/* only for the transaction list */
+			g_signal_emit (transaction, signals[SIGNAL_FINISHED], 0);
+			return;
+		}
+
+		g_object_unref (error_code);
+	}
 
 	/* run the plugins */
 	pk_transaction_plugin_phase (transaction,
@@ -5593,6 +5607,8 @@ pk_transaction_reset_after_lock_error (PkTransaction *transaction)
 	/* first set state manually, otherwise set_state will refuse to switch to an earlier stage */
 	priv->state = PK_TRANSACTION_STATE_READY;
 	pk_transaction_set_state (transaction, PK_TRANSACTION_STATE_READY);
+
+	g_debug ("transaction has been reset after lock-required issue.");
 }
 
 /**
