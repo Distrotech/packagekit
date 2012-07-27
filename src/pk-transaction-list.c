@@ -503,9 +503,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 	guint timeout;
 	PkTransactionItem *item;
 	PkTransactionState state;
-	PkResults *results;
 	PkBackendJob *job;
-	PkError *error;
 	const gchar *tid;
 
 	g_return_if_fail (PK_IS_TRANSACTION_LIST (tlist));
@@ -522,10 +520,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		return;
 	}
 
-	results = pk_transaction_get_results (item->transaction);
-	error = pk_results_get_error_code (results);
-
-	if ((error != NULL) && (pk_error_get_code (error) == PK_ERROR_ENUM_LOCK_REQUIRED)) {
+	if (pk_transaction_finished_with_lock_required (item->transaction)) {
 		pk_transaction_reset_after_lock_error (item->transaction);
 
 		/* increase the number of tries */
@@ -542,7 +537,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 
 			/* now really finish & fail the transaction */
 			pk_backend_job_finished (job);
-			goto out;
+			return;
 		}
 	} else {
 		/* we've been 'used' */
@@ -555,7 +550,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		ret = pk_transaction_set_state (item->transaction, PK_TRANSACTION_STATE_FINISHED);
 		if (!ret) {
 			g_warning ("transaction could not be set finished!");
-			goto out;
+			return;
 		}
 
 		/* give the client a few seconds to still query the runner */
@@ -574,10 +569,6 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 	/* we have changed what is running */
 	g_debug ("emmitting ::changed");
 	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
-
-out:
-	if (error != NULL)
-		g_object_unref (error);
 }
 
 /**
@@ -852,7 +843,7 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 	g_debug ("emitting ::changed");
 	g_signal_emit (tlist, signals [PK_TRANSACTION_LIST_CHANGED], 0);
 
-	/* is one of the current running transactions backtround, and this new
+	/* is one of the current running transactions background, and this new
 	 * transaction foreground? */
 	ret = pk_conf_get_bool (tlist->priv->conf,
 				"CancelBackgroundTransactions");
