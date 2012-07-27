@@ -533,7 +533,8 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 			job = pk_transaction_get_backend_job (item->transaction);
 
 			/* TRANSLATORS: We finally failed completely to get a package manager lock */
-			pk_backend_job_error_code (job, PK_ERROR_ENUM_CANNOT_GET_LOCK, _("Unable to lock package database! There is probably another application using it already."));
+			pk_backend_job_error_code (job, PK_ERROR_ENUM_CANNOT_GET_LOCK,
+						   "Unable to lock package database! There is probably another application using it already.");
 
 			/* now really finish & fail the transaction */
 			pk_backend_job_finished (job);
