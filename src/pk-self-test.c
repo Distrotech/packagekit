@@ -1562,8 +1562,9 @@ pk_test_transaction_list_parallel_func (void)
 {
 	PkTransactionList *tlist;
 	PkCache *cache;
-	gboolean ret;
 	guint size;
+	gboolean ret;
+	guint i;
 	gchar **array;
 	PkTransaction *transaction1;
 	PkTransaction *transaction2;
@@ -1708,18 +1709,29 @@ pk_test_transaction_list_parallel_func (void)
 	g_assert_cmpint (size, ==, 5);
 
 	/* wait for all non-exclusive actions to complete */
-	ret = FALSE;
-	transaction1 = pk_transaction_list_get_transaction (tlist, tid_item1);
-	transaction2 = pk_transaction_list_get_transaction (tlist, tid_item3);
-	transaction3 = pk_transaction_list_get_transaction (tlist, tid_item5);
+	i = 0;
+	while (TRUE) {
+		_g_test_loop_run_with_timeout (10000 - i*20);
+		i++;
 
-	while (!ret) {
-		_g_test_loop_run_with_timeout (10000);
+		/* ensure transaction objects are up-to-date */
+		transaction1 = pk_transaction_list_get_transaction (tlist, tid_item1);
+		transaction2 = pk_transaction_list_get_transaction (tlist, tid_item3);
+		transaction3 = pk_transaction_list_get_transaction (tlist, tid_item5);
+
+		if (i >= 100 ||
+		    transaction1 == NULL ||
+		    transaction2 == NULL ||
+		    transaction3 == NULL) {
+			g_warning ("did not reach state where all non-exclusive transactions are finished");
+			g_print ("Dumping transaction-list state:\n%s\n", pk_transaction_list_get_state (tlist));
+			g_assert_not_reached ();
+		}
 
 		if (pk_transaction_get_state (transaction1) == PK_TRANSACTION_STATE_FINISHED &&
 		    pk_transaction_get_state (transaction2) == PK_TRANSACTION_STATE_FINISHED &&
 		    pk_transaction_get_state (transaction3) == PK_TRANSACTION_STATE_FINISHED)
-			ret = TRUE;
+			break;
 	}
 
 	/* we should have two exlusive transactions left */
