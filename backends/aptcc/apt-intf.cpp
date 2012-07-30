@@ -2389,6 +2389,15 @@ bool AptIntf::runTransaction(const PkgList &install, const PkgList &remove, bool
 
     // new scope for the ActionGroup
     {
+        // Mark packages on hold
+        for (pkgCache::PkgIterator pkg = cache->PkgBegin(); !pkg.end(); ++pkg) {
+            // Check if the package is Held
+            pkgDepCache::StateCache &State = cache[pkg];
+            if (State.Upgradable() && State.Keep()) {
+                cache->MarkKeep(pkg, false);
+            }
+        }
+
         pkgDepCache::ActionGroup group(cache);
         for (PkgList::const_iterator it = install.begin(); it != install.end(); ++it) {
             if (m_cancel) {
