@@ -106,6 +106,8 @@ void		 pk_transaction_set_signals			(PkTransaction	*transaction,
 								 PkBitfield backend_signals);
 gboolean	 pk_transaction_finished_with_lock_required	(PkTransaction *transaction);
 void		 pk_transaction_reset_after_lock_error		(PkTransaction *transaction);
+void		 pk_transaction_set_exclusive			(PkTransaction *transaction,
+								 gboolean exclusive);
 
 G_END_DECLS
 

@@ -856,9 +856,10 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 		}
 	}
 
-	/* do the transaction now */
+	/* do the transaction now, if possible */
 	g_debug ("running %s", item->tid);
-	pk_transaction_list_run_item (tlist, item);
+	if ((!pk_transaction_is_exclusive (item->transaction)) || (pk_transaction_list_get_exclusive_running (tlist) == 0))
+		pk_transaction_list_run_item (tlist, item);
 
 	return TRUE;
 }
