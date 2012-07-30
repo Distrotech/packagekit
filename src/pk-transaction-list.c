@@ -558,13 +558,13 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		timeout = pk_conf_get_int (tlist->priv->conf, "TransactionKeepFinishedTimeout");
 		item->remove_id = g_timeout_add_seconds (timeout, (GSourceFunc) pk_transaction_list_remove_item_cb, item);
 		g_source_set_name_by_id (item->remove_id, "[PkTransactionList] remove");
+	}
 
-		/* try to run the next transaction, if possible */
-		item = pk_transaction_list_get_next_item (tlist);
-		if (item != NULL) {
-			g_debug ("running %s as previous one finished", item->tid);
-			pk_transaction_list_run_item (tlist, item);
-		}
+	/* try to run the next transaction, if possible */
+	item = pk_transaction_list_get_next_item (tlist);
+	if (item != NULL) {
+		g_debug ("running %s as previous one finished", item->tid);
+		pk_transaction_list_run_item (tlist, item);
 	}
 
 	/* we have changed what is running */

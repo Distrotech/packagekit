@@ -1694,6 +1694,9 @@ pk_backend_stop_job (PkBackend *backend, PkBackendJob *job)
 	 * needed to fire the job_stop() vfunc */
 	g_object_unref (job_data->cancellable);
 
+	/* unlock backend */
+	priv->fake_db_locked = FALSE;
+
 	/* destroy state for this job */
 	g_free (job_data);
 }
