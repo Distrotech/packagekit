@@ -834,6 +834,10 @@ pk_transaction_list_commit (PkTransactionList *tlist, const gchar *tid)
 		return FALSE;
 	}
 
+	/* treat all transactions as exclusive if backend does not support parallelization */
+	if (!pk_backend_supports_parallelization (tlist->priv->backend))
+		pk_transaction_set_exclusive (item->transaction, TRUE);
+
 	/* we've been 'used' */
 	if (item->commit_id != 0) {
 		g_source_remove (item->commit_id);
