@@ -406,7 +406,7 @@ out:
 /**
  * pk_transaction_list_get_background_running:
  *
- * Return value: %TRUE if we have running background transaction(s)
+ * Return value: %TRUE if we have running background transactions
  **/
 static gboolean
 pk_transaction_list_get_background_running (PkTransactionList *tlist)
@@ -426,7 +426,6 @@ pk_transaction_list_get_background_running (PkTransactionList *tlist)
 	/* check if we have any running background transaction */
 	for (i=0; i<array->len; i++) {
 		item = (PkTransactionItem *) g_ptr_array_index (array, i);
-		/* check if a transaction is running in exclusive mode and set if we're locked */
 		if (item->background) {
 			ret = TRUE;
 			goto out;
@@ -532,7 +531,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 			/* fail the transaction */
 			job = pk_transaction_get_backend_job (item->transaction);
 
-			/* TRANSLATORS: We finally failed completely to get a package manager lock */
+			/* we finally failed completely to get a package manager lock */
 			pk_backend_job_error_code (job, PK_ERROR_ENUM_CANNOT_GET_LOCK,
 						   "Unable to lock package database! There is probably another application using it already.");
 
