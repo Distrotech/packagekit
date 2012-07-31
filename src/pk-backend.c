@@ -644,6 +644,7 @@ pk_backend_reset_job (PkBackend *backend, PkBackendJob *job)
 
 	if (!pk_backend_job_get_started (job)) {
 		g_warning ("trying to reset job, but never started it before");
+		return;
 	}
 
 	/* optional */
