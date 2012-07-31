@@ -1543,6 +1543,11 @@ pk_test_transaction_list_func (void)
 	transaction = pk_transaction_list_get_transaction (tlist, tid_item3);
 	g_assert_cmpint (pk_transaction_get_state (transaction), ==, PK_TRANSACTION_STATE_FINISHED);
 
+	/* free tids */
+	g_free (tid_item1);
+	g_free (tid_item2);
+	g_free (tid_item3);
+
 	/* wait for Cleanup */
 	_g_test_loop_wait (10000);
 
@@ -1766,6 +1771,13 @@ pk_test_transaction_list_parallel_func (void)
 	size = g_strv_length (array);
 	g_assert_cmpint (size, ==, 0);
 	g_strfreev (array);
+
+	/* free tids */
+	g_free (tid_item1);
+	g_free (tid_item2);
+	g_free (tid_item3);
+	g_free (tid_item4);
+	g_free (tid_item5);
 
 	g_object_unref (tlist);
 	g_object_unref (backend);
