@@ -1653,7 +1653,6 @@ pk_test_transaction_list_parallel_func (void)
 						      pk_bitfield_value (PK_FILTER_ENUM_NONE),
 						      array),
 				       NULL);
-
 	g_strfreev (array);
 
 	/* run a third action in parallel */
@@ -1675,7 +1674,6 @@ pk_test_transaction_list_parallel_func (void)
 						      pk_bitfield_value (PK_FILTER_ENUM_NONE),
 						      array),
 				       NULL);
-
 	g_strfreev (array);
 
 	/* get transactions (committed, not finished) in progress (all should be RUNNING now) */
@@ -1707,7 +1705,6 @@ pk_test_transaction_list_parallel_func (void)
 						      pk_bitfield_value (PK_FILTER_ENUM_NONE),
 						      array),
 				       NULL);
-
 	g_strfreev (array);
 
 	/* get all transactions in queue */
@@ -1717,7 +1714,7 @@ pk_test_transaction_list_parallel_func (void)
 	/* wait for all non-exclusive actions to complete */
 	i = 0;
 	while (TRUE) {
-		_g_test_loop_run_with_timeout (10000 - i*20);
+		_g_test_loop_run_with_timeout (10000 - i * 20);
 		i++;
 
 		/* ensure transaction objects are up-to-date */
@@ -1729,8 +1726,8 @@ pk_test_transaction_list_parallel_func (void)
 		    transaction1 == NULL ||
 		    transaction2 == NULL ||
 		    transaction3 == NULL) {
-			g_warning ("did not reach state where all non-exclusive transactions are finished");
 			g_print ("Dumping transaction-list state:\n%s\n", pk_transaction_list_get_state (tlist));
+			g_warning ("did not reach state where all non-exclusive transactions are finished");
 			g_assert_not_reached ();
 		}
 

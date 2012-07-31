@@ -520,7 +520,7 @@ pk_transaction_list_transaction_finished_cb (PkTransaction *transaction,
 		return;
 	}
 
-	if (pk_transaction_finished_with_lock_required (item->transaction)) {
+	if (pk_transaction_is_finished_with_lock_required (item->transaction)) {
 		pk_transaction_reset_after_lock_error (item->transaction);
 
 		/* increase the number of tries */
