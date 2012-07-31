@@ -108,7 +108,7 @@ struct PkTransactionPrivate
 	PolkitSubject		*subject;
 	GCancellable		*cancellable;
 #endif
-	gboolean		skip_auth_check;
+	gboolean		 skip_auth_check;
 	PkSyslog		*syslog;
 
 	/* needed for gui coldplugging */
@@ -2898,11 +2898,12 @@ pk_transaction_obtain_authorization (PkTransaction *transaction,
 
 	g_return_val_if_fail (priv->sender != NULL, FALSE);
 
-	/* we don't need to authenticate at all to just download packages or if we're running unit tests */
+	/* we don't need to authenticate at all to just download
+	 * packages or if we're running unit tests */
 	if (pk_bitfield_contain (transaction->priv->cached_transaction_flags,
 				 PK_TRANSACTION_FLAG_ENUM_ONLY_DOWNLOAD) ||
 	    priv->skip_auth_check == TRUE) {
-		g_debug ("No authentication required for only-download");
+		g_debug ("No authentication required");
 		ret = pk_transaction_commit (transaction);
 		if (!ret) {
 			g_set_error_literal (error,
