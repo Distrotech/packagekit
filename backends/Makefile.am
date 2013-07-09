@@ -16,6 +16,10 @@ if BACKEND_TYPE_BOX
 SUBDIRS += box
 endif
 
+if BACKEND_TYPE_CLICK
+SUBDIRS += click
+endif
+
 if BACKEND_TYPE_CONARY
 SUBDIRS += conary
 endif

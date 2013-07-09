@@ -490,6 +490,7 @@ AC_ARG_ENABLE(alpm, AS_HELP_STRING([--enable-alpm],[use the ALPM backend]),enabl
 AC_ARG_ENABLE(apt, AS_HELP_STRING([--enable-apt],[use the APT backend]),enable_apt=$enableval,enable_apt=no)
 AC_ARG_ENABLE(aptcc, AS_HELP_STRING([--enable-aptcc],[use the APTcc backend]),enable_aptcc=$enableval,enable_aptcc=no)
 AC_ARG_ENABLE(box, AS_HELP_STRING([--enable-box],[use the BOX backend]),enable_box=$enableval,enable_box=no)
+AC_ARG_ENABLE(click, AS_HELP_STRING([--enable-click],[use the Click backend]),enable_click=$enableval,enable_click=no)
 AC_ARG_ENABLE(conary, AS_HELP_STRING([--enable-conary],[use the CONARY backend]),enable_conary=$enableval,enable_conary=no)
 AC_ARG_ENABLE(dummy, AS_HELP_STRING([--enable-dummy],[use the dummy backend]),enable_dummy=$enableval,enable_dummy=yes)
 AC_ARG_ENABLE(entropy, AS_HELP_STRING([--enable-entropy],[use the entropy backend]),enable_entropy=$enableval,enable_entropy=no)
@@ -511,6 +512,7 @@ AM_CONDITIONAL(BACKEND_TYPE_ALPM, [test x$enable_alpm = xyes])
 AM_CONDITIONAL(BACKEND_TYPE_APT, [test x$enable_apt = xyes])
 AM_CONDITIONAL(BACKEND_TYPE_APTCC, [test x$enable_aptcc = xyes])
 AM_CONDITIONAL(BACKEND_TYPE_BOX, [test x$enable_box = xyes])
+AM_CONDITIONAL(BACKEND_TYPE_CLICK, [test x$enable_click = xyes])
 AM_CONDITIONAL(BACKEND_TYPE_CONARY, [test x$enable_conary = xyes])
 AM_CONDITIONAL(BACKEND_TYPE_DUMMY, [test x$enable_dummy = xyes])
 AM_CONDITIONAL(BACKEND_TYPE_ENTROPY, [test x$enable_entropy = xyes])
@@ -580,7 +582,7 @@ dnl ---------------------------------------------------------------------------
 AC_ARG_WITH([default_backend],
 	    AS_HELP_STRING([--with-default-backend=<option>],
 			   [Default backend to use
-                           auto,alpm,apt,aptcc,box,conary,dummy,entropy,hawkey,opkg,pisi,portage,ports,slapt,smart,urpmi,yum,zif,zypp (dummy)]))
+                           auto,alpm,apt,aptcc,box,click,conary,dummy,entropy,hawkey,opkg,pisi,portage,ports,slapt,smart,urpmi,yum,zif,zypp (dummy)]))
 # default to a sane option for the installed tool
 if test x$with_default_backend = x; then
 	if test -f /usr/bin/yum ; then
@@ -589,6 +591,8 @@ if test x$with_default_backend = x; then
 		with_default_backend=zif
 	elif test -f /usr/lib/libalpm.so; then
 		with_default_backend=alpm
+	elif test -f /usr/bin/click-package ; then
+		with_default_backend=click
 	elif test -f /usr/bin/apt-get ; then
 		with_default_backend=aptcc
 	elif test -f /usr/bin/conary ; then
@@ -757,6 +761,10 @@ if test x$enable_slapt = xyes; then
 	AC_SUBST(SLAPT_LIBS)
 fi
 
+if test x$enable_apt = xyes; then
+	PY_CHECK_MOD([clickpackage],,,AC_MSG_ERROR([Click backend needs python3-clickpackage.install]))
+fi
+
 AC_SUBST(PK_CONF_DIR, "\$(sysconfdir)/PackageKit")
 AC_SUBST(PK_YUM_PLUGIN_DIR, "\$(prefix)/lib/yum-plugins")
 AC_SUBST(PK_DB_DIR, "\$(localstatedir)/lib/PackageKit")
@@ -792,6 +800,7 @@ backends/alpm/Makefile
 backends/apt/Makefile
 backends/aptcc/Makefile
 backends/box/Makefile
+backends/click/Makefile
 backends/conary/Makefile
 backends/dummy/Makefile
 backends/entropy/Makefile
@@ -872,6 +881,7 @@ echo "
         APTcc backend:             ${enable_aptcc}
         BOX backend:               ${enable_box}
         CONARY backend:            ${enable_conary}
+        Click backend:             ${enable_click}
         dummy backend:             ${enable_dummy}
         Entropy backend:           ${enable_entropy}
         Hawkey backend:            ${enable_hawkey}
